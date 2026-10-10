@@ -1,0 +1,53 @@
+# Platform facts the agents need: repositories, environments, clusters and the model endpoint.
+# In production this file lives in the guardrails repository next to limits.yaml.
+
+github:
+  org: example-org
+  repositories:
+    iac: example-org/aks-iac
+    fleet: example-org/aks-fleet
+    design: olljanat-ai/aks-design
+    runbooks: example-org/aks-runbooks
+    guardrails: example-org/aks-guardrails
+
+model:
+  provider: anthropic            # anthropic | foundry
+  name: claude-opus-5-5          # on Foundry: the deployment name
+  foundryResource: ""            # Foundry resource name (provider foundry)
+  fallbacks: default             # server-side refusal fallbacks (anthropic) or a model list (foundry)
+
+audit:
+  runsDir: runs                  # local copy of every run
+  storageAccount: ""             # immutable storage account in sub-mgmt (empty = local only)
+  container: agent-runs
+
+documentationSites:              # the only Internet sites agents may read (hub Firewall allow-list)
+  - learn.microsoft.com
+  - github.com
+  - raw.githubusercontent.com
+  - kubernetes.io
+  - releases.aks.azure.com
+  - azure.github.io
+
+environments:
+  dev:
+    subscription: sub-aks-dev
+    region: swedencentral
+    resourceGroup: rg-aks-dev
+    logAnalyticsWorkspace: /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-mgmt/providers/Microsoft.OperationalInsights/workspaces/log-aks-dev
+    clusters: [aks-dev-sl-az1, aks-dev-sl-az2]
+  acc:
+    subscription: sub-aks-acc
+    region: swedencentral
+    resourceGroup: rg-aks-acc
+    logAnalyticsWorkspace: /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-mgmt/providers/Microsoft.OperationalInsights/workspaces/log-aks-acc
+    clusters: [aks-acc-sl-az1, aks-acc-sl-az2]
+  prd:
+    subscription: sub-aks-prd
+    region: swedencentral
+    resourceGroup: rg-aks-prd
+    logAnalyticsWorkspace: /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-mgmt/providers/Microsoft.OperationalInsights/workspaces/log-aks-prd
+    clusters: [aks-prd-sl-az1, aks-prd-sl-az2, aks-prd-sl-az3]
+
+# Namespaces whose logs agents may read. Application logs may hold personal data and are never read.
+platformNamespaces: [kube-system, flux-system, gatekeeper-system, monitoring, cert-manager, keda, traefik]
