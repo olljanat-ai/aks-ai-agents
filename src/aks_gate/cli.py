@@ -69,6 +69,26 @@ def cmd_collect(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_collect_azdo(args: argparse.Namespace) -> int:
+    from .azure_devops import AzureDevOps, changed_files, collect
+
+    config = GateConfig.load(args.guardrails)
+    ado = AzureDevOps(args.collection_url, args.project)
+    data = collect(ado, args.repository, args.number, config)
+    Path(args.output).write_text(json.dumps(data, indent=2) + "\n")
+    if args.changed_files:
+        Path(args.changed_files).write_text("\n".join(changed_files(ado, args.repository, args.number)) + "\n")
+    return 0
+
+
+def cmd_publish_azdo(args: argparse.Namespace) -> int:
+    from .azure_devops import AzureDevOps, publish
+
+    ado = AzureDevOps(args.collection_url, args.project)
+    publish(ado, args.repository, args.number, json.loads(Path(args.decision).read_text()), args.target_url or "")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="aks-gate", description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -94,6 +114,24 @@ def main(argv: list[str] | None = None) -> int:
     co.add_argument("--output", required=True)
     co.add_argument("--changed-files", help="also write the changed paths here")
     co.set_defaults(func=cmd_collect)
+
+    for name, func, helptext in (
+        ("collect-azdo", cmd_collect_azdo, "fetch pull request facts from Azure DevOps (SYSTEM_ACCESSTOKEN)"),
+        ("publish-azdo", cmd_publish_azdo, "post the merge-gate status (and auto-complete) to Azure DevOps"),
+    ):
+        p = sub.add_parser(name, help=helptext)
+        p.add_argument("--collection-url", required=True, help="e.g. $(System.CollectionUri)")
+        p.add_argument("--project", required=True)
+        p.add_argument("--repository", required=True, help="repository name or ID")
+        p.add_argument("--number", required=True, type=int, help="pull request ID")
+        if name == "collect-azdo":
+            p.add_argument("--guardrails", required=True)
+            p.add_argument("--output", required=True)
+            p.add_argument("--changed-files")
+        else:
+            p.add_argument("--decision", required=True, help="decision JSON written by 'evaluate --output'")
+            p.add_argument("--target-url", help="link to the gate run")
+        p.set_defaults(func=func)
 
     args = parser.parse_args(argv)
     try:

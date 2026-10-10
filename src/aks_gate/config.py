@@ -111,7 +111,8 @@ class GateConfig:
         return cls(limits=Limits(limits), tiers=TierRules.from_dict(tiers), gate=tiers)
 
     def agent_for_login(self, login: str) -> str | None:
-        for name, bot in (self.gate.get("agents") or {}).items():
-            if bot == login:
-                return name
+        for mapping in ("agents", "agentsAzureDevOps"):
+            for name, identity in (self.gate.get(mapping) or {}).items():
+                if login in (identity, f"{identity}[bot]"):
+                    return name
         return None
