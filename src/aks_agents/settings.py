@@ -30,7 +30,7 @@ class PlatformConfig:
 
     def repository(self, key: str) -> str:
         """``owner/name`` of a repository key (``iac``, ``fleet``, ``design``, ...)."""
-        repo = self.get(f"github.repositories.{key}")
+        repo = self.get(f"git.repositories.{key}") or self.get(f"github.repositories.{key}")
         if not repo:
             raise KeyError(f"unknown repository {key!r}")
         return repo

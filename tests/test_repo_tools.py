@@ -9,27 +9,41 @@ from aks_agents.tools.base import REGISTRY, ToolContext, ToolError, tools_for
 from aks_gate.pr import PullRequest, body_sections, check_structure, parse_trailers
 
 
-class FakeGitHub:
-    token = ""
+class FakePlatform:
+    """Records what the tools ask the Git platform to do."""
 
-    def __init__(self):
+    name = "fake"
+    max_body_length = 65_000
+    default_branch = "main"
+
+    def __init__(self, clone_root):
+        self.clone_root = clone_root
         self.calls = []
 
-    def post(self, path, body):
-        self.calls.append(("POST", path, body))
-        if path.endswith("/pulls"):
-            return {"number": 7, "html_url": "https://github.com/o/fleet/pull/7"}
-        if path.endswith("/issues"):
-            return {"number": 3, "html_url": "https://github.com/o/fleet/issues/3"}
-        return {"html_url": "u"}
+    def clone_url(self, repo):
+        return f"{self.clone_root}/{repo.split('/')[-1]}"
 
-    def get(self, path, **params):
-        self.calls.append(("GET", path, params))
-        return {"user": {"login": "aks-platform-agent[bot]"}, "head": {"sha": "head123"}}
+    def git_auth_header(self):
+        return None
 
-    def commit_files(self, repo, base_sha, branch, message, changes):
-        self.calls.append(("COMMIT", repo, branch, message, changes))
+    def commit_files(self, repo, base_sha, branch, message, changes, existing):
+        self.calls.append(("commit", repo, branch, message, changes, existing))
         return "c0ffee"
+
+    def create_pull_request(self, repo, branch, title, body, draft):
+        self.calls.append(("pull_request", repo, branch, title, body, draft))
+        return {"number": 7, "url": "https://example/pull/7"}
+
+    def create_issue(self, repo, title, body, labels):
+        self.calls.append(("issue", repo, title, body, labels))
+        return {"number": 3, "url": "https://example/issues/3"}
+
+    def read_pull_request(self, repo, number):
+        return {"author": "aks-platform-agent[bot]", "head_sha": "head123"}
+
+    def dispatch_runbook(self, repo, runbook, inputs):
+        self.calls.append(("runbook", repo, runbook, inputs))
+        return {"dispatched": True}
 
 
 def git(cwd, *args):
@@ -76,7 +90,7 @@ def ctx(tmp_path):
         recorder=RunRecorder(tmp_path / "runs", "release-agent-x-abc123"),
         run_id="release-agent-x-abc123",
     )
-    c.state["github"] = FakeGitHub()
+    c.state["platform"] = FakePlatform(tmp_path / "origin")
     tools_for(definition.tools)
     return c
 
@@ -111,13 +125,14 @@ def test_read_write_and_pull_request(ctx):
 
     out = REGISTRY["create_pull_request"].handler(ctx, PR_ARGS)
     assert out["number"] == 7 and out["branch"].startswith("agent/release-agent/promote-shop-to-prd-")
-    gh = ctx.state["github"]
-    commit = next(c for c in gh.calls if c[0] == "COMMIT")
+    calls = ctx.state["platform"].calls
+    commit = next(c for c in calls if c[0] == "commit")
     assert commit[4] == {"apps/shop/stateless/prd/kustomization.yaml": b"images:\n- name: shop\n  digest: sha256:bbb\n"}
+    assert "apps/shop/stateless/prd/kustomization.yaml" in commit[5]  # existed before: an edit, not an add
     assert parse_trailers(commit[3]) == {"Agent": ["release-agent"], "Agent-Run": ["release-agent-x-abc123"]}
 
     # The body and the commit satisfy the merge gate's structure check.
-    body = next(c for c in gh.calls if c[1].endswith("/pulls"))[2]["body"]
+    body = next(c for c in calls if c[0] == "pull_request")[4]
     assert {"intent", "evidence", "design section", "rollback"} <= set(body_sections(body))
     pr = PullRequest(repository="o/fleet", number=7, author="b", head_ref=out["branch"], head_sha="x", body=body)
     pr.commits = [type("C", (), {"sha": "c0ffee0000", "message": commit[3]})()]
@@ -131,6 +146,15 @@ def test_read_write_and_pull_request(ctx):
     # The workspace is clean again for the next change.
     assert run(ctx, "repo_diff", repo="fleet") == "no changes"
     assert ctx.outputs[0]["url"].endswith("/pull/7")
+
+
+def test_long_body_is_shortened_in_the_evidence_only():
+    from aks_agents.tools.repo import pull_request_body
+
+    body = pull_request_body({**PR_ARGS, "evidence": "x" * 10_000}, "release-agent", "run-1", max_length=4000)
+    assert len(body) <= 4000 and "shortened" in body
+    assert {"intent", "evidence", "design section", "rollback"} <= set(body_sections(body))
+    assert "Revert the digest." in body
 
 
 def test_write_outside_allowed_paths_is_denied(ctx):
@@ -155,7 +179,7 @@ def test_dry_run_records_without_calls(ctx):
     run(ctx, "repo_write", repo="fleet", path="apps/shop/stateless/prd/kustomization.yaml", content="x\n")
     out = REGISTRY["create_pull_request"].handler(ctx, PR_ARGS)
     assert out["dry_run"] and "## Rollback" in out["body"]
-    assert ctx.state["github"].calls == []
+    assert ctx.state["platform"].calls == []
 
 
 def test_runbook_limits(ctx):
@@ -171,9 +195,9 @@ def test_runbook_limits(ctx):
             inputs={"environment": "prd", "cell": "sl-az1", "namespace": "infra-x", "name": "n", "reason": "r"},
         )
     run(ctx, "dispatch_runbook", runbook="drain-cell", inputs={"environment": "prd", "cell": "sl-az2", "reason": "5xx"})
-    call = ctx.state["github"].calls[-1]
-    assert call[1] == "/repos/o/runbooks/actions/workflows/drain-cell.yml/dispatches"
-    assert call[2]["inputs"]["agent_run"] == "release-agent-x-abc123"
+    call = ctx.state["platform"].calls[-1]
+    assert call[:3] == ("runbook", "o/runbooks", "drain-cell")
+    assert call[3]["agent_run"] == "release-agent-x-abc123"
 
 
 def test_issue(ctx):

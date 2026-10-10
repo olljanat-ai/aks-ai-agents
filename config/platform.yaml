@@ -1,14 +1,20 @@
 # Platform facts the agents need: repositories, environments, clusters and the model endpoint.
 # In production this file lives in the guardrails repository next to limits.yaml.
 
-github:
-  org: example-org
+git:
+  platform: github               # github | azure-devops
+  defaultBranch: main
+  # GitHub: owner/name. Azure DevOps: the repository name in the project below.
   repositories:
     iac: example-org/aks-iac
     fleet: example-org/aks-fleet
     design: olljanat-ai/aks-design
     runbooks: example-org/aks-runbooks
     guardrails: example-org/aks-guardrails
+  azureDevOps:                   # used when platform is azure-devops
+    organizationUrl: https://dev.azure.com/example-org
+    project: platform
+    workItemType: Issue          # Basic process; e.g. Task or Bug with Agile / Scrum / CMMI
 
 model:
   provider: anthropic            # anthropic | foundry

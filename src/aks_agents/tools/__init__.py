@@ -2,4 +2,4 @@
 
 
 def load_all() -> None:
-    from . import azure, core, github_tools, kubernetes, repo, web  # noqa: F401
+    from . import azure, collaboration, core, kubernetes, repo, web  # noqa: F401

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import datetime as dt
+import fnmatch
 import json
 import os
 import urllib.error
@@ -66,15 +67,23 @@ def _approved(vote: int) -> bool:
 
 
 def _agent_identities(config: GateConfig) -> dict[str, str]:
-    """Display name / unique name of each agent's service principal → agent name."""
+    """Identity name or glob pattern of each agent → agent name."""
     return {v.lower(): k for k, v in (config.gate.get("agentsAzureDevOps") or {}).items()}
+
+
+def _agent_of(name: str, agents: dict[str, str]) -> str | None:
+    name = name.lower()
+    for pattern, agent in agents.items():
+        if name == pattern or ("*" in pattern and fnmatch.fnmatchcase(name, pattern)):
+            return agent
+    return None
 
 
 def _login(identity: dict[str, Any], agents: dict[str, str]) -> str:
     """The gate's user name for an identity; agents and service accounts end with ``[bot]`` like GitHub Apps."""
     names = [str(identity.get(k) or "") for k in ("uniqueName", "displayName")]
     for name in names:
-        if name.lower() in agents:
+        if name and _agent_of(name, agents):
             return f"{name}[bot]"
     name = names[0] or names[1]
     if "@" not in name or "build service" in names[1].lower():
@@ -130,6 +139,11 @@ def collect(
         for s in statuses
         if s.get("context", {}).get("genre") == STATUS_GENRE and s.get("context", {}).get("name") == check
     ]
+    # The reviewer agent posts its status on the latest iteration; one on an older iteration is stale.
+    iterations = ado.get(f"{base}/iterations").get("value", [])
+    last_iteration = max((i["id"] for i in iterations), default=None)
+    if any("iterationId" in s for s in mine):
+        mine = [s for s in mine if s.get("iterationId") == last_iteration]
     latest = max(mine, key=lambda s: s.get("id", 0), default=None)
     conclusion = {"succeeded": "success", "failed": "failure", "error": "failure"}.get((latest or {}).get("state", ""))
     flagged = bool(latest and "flagged" in str(latest.get("description", "")).lower())
@@ -147,8 +161,8 @@ def collect(
                     incident_fix = True
 
     agent = (
-        agents.get(str(pr["createdBy"].get("uniqueName", "")).lower())
-        or agents.get(str(pr["createdBy"].get("displayName", "")).lower())
+        _agent_of(str(pr["createdBy"].get("uniqueName", "")), agents)
+        or _agent_of(str(pr["createdBy"].get("displayName", "")), agents)
         or branch_agent(head_ref)
     )
     open_prs, merges_today = 0, {}

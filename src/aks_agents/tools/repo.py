@@ -8,36 +8,35 @@ Grants (in the agent definition)::
     - create_pull_request: {repositories: [fleet, iac]}
 
 An agent can only read repositories and write paths its definition lists. Nothing is pushed until
-``create_pull_request``, which creates one signed commit through the GitHub API.
+``create_pull_request``, which creates one commit through the Git platform's API (GitHub or Azure DevOps).
 """
 
 from __future__ import annotations
 
-import base64
 import fnmatch
 import re
 import subprocess
 from pathlib import Path
 from typing import Any
 
-from ..github import GitHubClient
+from ..platforms import GitPlatform, PlatformError, create
 from .base import ToolContext, ToolError, tool
 from .core import safe_join
 
 REPO_PROPERTY = {"type": "string", "description": "Repository key, e.g. iac, fleet or design"}
 
 
-def github(ctx: ToolContext) -> GitHubClient:
-    if "github" not in ctx.state:
-        ctx.state["github"] = GitHubClient()
-    return ctx.state["github"]
+def git_platform(ctx: ToolContext) -> GitPlatform:
+    """The run's Git platform (GitHub or Azure DevOps), created on first use."""
+    if "platform" not in ctx.state:
+        ctx.state["platform"] = create(ctx.platform)
+    return ctx.state["platform"]
 
 
-def _git(cwd: Path, *args: str, token: str = "", check: bool = True) -> str:
+def _git(cwd: Path, *args: str, auth_header: str | None = None, check: bool = True) -> str:
     cmd = ["git"]
-    if token:
-        basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
-        cmd += ["-c", f"http.extraHeader=Authorization: Basic {basic}"]
+    if auth_header:  # passed per command, never stored in .git/config
+        cmd += ["-c", f"http.extraHeader={auth_header}"]
     proc = subprocess.run(cmd + list(args), cwd=cwd, capture_output=True, text=True, timeout=300)
     if check and proc.returncode != 0:
         raise ToolError(f"git {args[0]} failed: {proc.stderr.strip()[:500]}")
@@ -62,10 +61,9 @@ def workspace(ctx: ToolContext, key: str) -> Path:
     spaces: dict[str, Path] = ctx.state.setdefault("workspaces", {})
     if key in spaces:
         return spaces[key]
-    repo = ctx.platform.repository(key)
-    template = ctx.platform.get("github.cloneUrl", "https://github.com/{repo}.git")
-    url = template.format(repo=repo, name=repo.split("/")[-1])
-    branch = ctx.platform.get("github.defaultBranch", "main")
+    gp = git_platform(ctx)
+    url = gp.clone_url(ctx.platform.repository(key))
+    branch = gp.default_branch
     target = Path(ctx.settings.workspace or ".workspace") / ctx.run_id / key
     target.parent.mkdir(parents=True, exist_ok=True)
     _git(
@@ -78,7 +76,7 @@ def workspace(ctx: ToolContext, key: str) -> Path:
         branch,
         url,
         str(target),
-        token=github(ctx).token if url.startswith("https://") else "",
+        auth_header=gp.git_auth_header() if url.startswith("https://") else None,
     )
     spaces[key] = target
     return target
@@ -226,7 +224,17 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40] or "change"
 
 
-def pull_request_body(args: dict[str, Any], agent: str, run_id: str) -> str:
+def pull_request_body(args: dict[str, Any], agent: str, run_id: str, max_length: int = 65_000) -> str:
+    body = _body(args, agent, run_id)
+    if len(body) > max_length:
+        # Azure DevOps allows 4000 characters: shorten the evidence, never the intent, design section or rollback.
+        note = f"\n\n_(shortened – the full evidence is in run `{run_id}`)_"
+        room = max(0, len(args["evidence"]) - (len(body) - max_length) - len(note))
+        body = _body({**args, "evidence": args["evidence"][:room] + note}, agent, run_id)
+    return body[:max_length]
+
+
+def _body(args: dict[str, Any], agent: str, run_id: str) -> str:
     return (
         f"## Intent\n\n{args['intent'].strip()}\n\n"
         f"## Evidence\n\n{args['evidence'].strip()}\n\n"
@@ -272,7 +280,6 @@ def create_pull_request(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any
     agent, run_id = ctx.agent.name, ctx.run_id
     branch = f"agent/{agent}/{_slug(args['title'])}-{run_id.rsplit('-', 1)[-1]}"
     message = f"{args['title']}\n\n{args['intent'].strip()[:1000]}\n\nAgent: {agent}\nAgent-Run: {run_id}\n"
-    body = pull_request_body(args, agent, run_id)
     base_sha = _git(root, "rev-parse", "HEAD").strip()
     output: dict[str, Any] = {
         "type": "pull_request",
@@ -283,22 +290,16 @@ def create_pull_request(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any
     }
     if ctx.settings.dry_run:
         output["dry_run"] = True
-        output["body"] = body
+        output["body"] = pull_request_body(args, agent, run_id)
     else:
-        gh = github(ctx)
-        gh.commit_files(repo, base_sha, branch, message, changes)
-        base = ctx.platform.get("github.defaultBranch", "main")
-        pr = gh.post(
-            f"/repos/{repo}/pulls",
-            {
-                "title": args["title"],
-                "head": branch,
-                "base": base,
-                "body": body,
-                "draft": bool(args.get("draft", False)),
-            },
-        )
-        output.update(number=pr["number"], url=pr["html_url"])
+        gp = git_platform(ctx)
+        body = pull_request_body(args, agent, run_id, gp.max_body_length)
+        existing = set(_git(root, "ls-tree", "-r", "--name-only", "HEAD").splitlines())
+        try:
+            gp.commit_files(repo, base_sha, branch, message, changes, existing)
+            output.update(gp.create_pull_request(repo, branch, args["title"], body, bool(args.get("draft", False))))
+        except PlatformError as err:
+            raise ToolError(f"{gp.name}: {err}") from err
     ctx.outputs.append(output)
     # Start the next change from a clean default branch.
     _git(root, "reset", "--quiet", "--hard", "HEAD")

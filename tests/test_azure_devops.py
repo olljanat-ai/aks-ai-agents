@@ -28,7 +28,11 @@ class FakeAdo(AzureDevOps):
 
 def responses(**overrides):
     pr = {
-        "createdBy": {"id": "sp1", "uniqueName": "sp-aks-upgrade-agent", "displayName": "sp-aks-upgrade-agent"},
+        "createdBy": {
+            "id": "sp1",
+            "uniqueName": "id-agent-upgrade-agent-dev",
+            "displayName": "id-agent-upgrade-agent-dev",
+        },
         "lastMergeSourceCommit": {"commitId": "abc"},
         "sourceRefName": "refs/heads/agent/upgrade-agent/dev",
         "description": BODY,
@@ -45,7 +49,7 @@ def responses(**overrides):
                     "votedFor": [{"uniqueName": "alice@example.com", "displayName": "Alice"}],
                 },
                 {"uniqueName": "alice@example.com", "displayName": "Alice", "vote": 10},
-                {"uniqueName": "sp-aks-reviewer-agent", "displayName": "sp-aks-reviewer-agent", "vote": 10},
+                {"uniqueName": "id-agent-reviewer-agent-prd", "displayName": "id-agent-reviewer-agent-prd", "vote": 10},
             ]
         },
         f"{BASE}/commits": {"value": [{"commitId": "abc", "comment": MESSAGE}]},
@@ -80,13 +84,13 @@ def responses(**overrides):
 def test_collect_maps_votes_groups_and_statuses(config):
     ado = FakeAdo(responses())
     data = collect(ado, "aks-iac", 5, config, now=TUESDAY)
-    assert data["author"] == "sp-aks-upgrade-agent[bot]"
+    assert data["author"] == "id-agent-upgrade-agent-dev[bot]"
     assert data["head_ref"] == "agent/upgrade-agent/dev"
     assert {"user": "alice@example.com", "state": "APPROVED", "commit_id": "abc", "teams": ["platform"]} in data[
         "reviews"
     ]
     assert any(
-        r["user"] == "sp-aks-reviewer-agent[bot]" for r in data["reviews"]
+        r["user"] == "id-agent-reviewer-agent-prd[bot]" for r in data["reviews"]
     )  # an agent vote never counts as human
     assert data["reviewer_agent_conclusion"] == "success" and data["open_pull_requests"] == 1
     assert changed_files(ado, "aks-iac", 5) == ["environments/dev/versions.auto.tfvars"]
@@ -126,7 +130,7 @@ def test_incident_fix_needs_a_human_comment(config):
     r = responses()
     r[BASE] = {**r[BASE], "labels": [{"name": "incident-fix"}]}
     r[f"{BASE}/threads"] = {
-        "value": [{"comments": [{"content": "incident-fix", "author": {"uniqueName": "sp-aks-upgrade-agent"}}]}]
+        "value": [{"comments": [{"content": "incident-fix", "author": {"uniqueName": "id-agent-upgrade-agent-dev"}}]}]
     }
     assert collect(FakeAdo(r), "aks-iac", 5, config, now=TUESDAY)["incident_fix_by_human"] is False
     r[f"{BASE}/threads"]["value"][0]["comments"].append(
@@ -136,3 +140,24 @@ def test_incident_fix_needs_a_human_comment(config):
         collect(FakeAdo(r), "aks-iac", 5, config, now=dt.datetime(2026, 10, 13, tzinfo=dt.UTC))["incident_fix_by_human"]
         is True
     )
+
+
+def test_agent_identity_patterns(config):
+    assert config.agent_for_login("id-agent-capacity-agent-prd[bot]") == "capacity-agent"
+    assert config.agent_for_login("aks-capacity-agent[bot]") == "capacity-agent"
+    assert config.agent_for_login("alice@example.com") is None
+
+
+def test_stale_reviewer_status_is_ignored(config):
+    r = responses()
+    r[f"{BASE}/statuses"] = {
+        "value": [
+            {
+                "id": 9,
+                "iterationId": 1,
+                "state": "succeeded",
+                "context": {"genre": "aks-agents", "name": "reviewer-agent"},
+            }
+        ]
+    }
+    assert collect(FakeAdo(r), "aks-iac", 5, config, now=TUESDAY)["reviewer_agent_conclusion"] is None

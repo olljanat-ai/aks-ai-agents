@@ -15,11 +15,11 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+from .base import PlatformError
 
-class GitHubError(Exception):
-    def __init__(self, status: int, message: str):
-        super().__init__(f"GitHub API {status}: {message}")
-        self.status = status
+
+class GitHubError(PlatformError):
+    pass
 
 
 class GitHubClient:

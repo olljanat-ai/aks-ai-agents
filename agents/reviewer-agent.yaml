@@ -10,4 +10,4 @@ tools:
   - guardrails_read
   - pull_request_read: { repositories: [iac, fleet, design] }
   - repo_read: { repositories: [iac, fleet, design] }
-  - publish_review: { repositories: [iac, fleet, design], ownLogin: "aks-reviewer-agent[bot]" }
+  - publish_review: { repositories: [iac, fleet, design], ownLogin: ["aks-reviewer-agent[bot]", "id-agent-reviewer-agent-*"] }

@@ -139,16 +139,17 @@ agents:
   onboarding-agent: aks-onboarding-agent[bot]
   reviewer-agent: aks-reviewer-agent[bot]
 
-# Azure DevOps: unique (or display) name of each agent's service principal.
+# Azure DevOps: each agent's managed identities (one per environment) are Azure DevOps users; their names, as
+# glob patterns (a "*" is required to use a pattern).
 agentsAzureDevOps:
-  operations-agent: sp-aks-operations-agent
-  platform-agent: sp-aks-platform-agent
-  upgrade-agent: sp-aks-upgrade-agent
-  release-agent: sp-aks-release-agent
-  capacity-agent: sp-aks-capacity-agent
-  security-agent: sp-aks-security-agent
-  onboarding-agent: sp-aks-onboarding-agent
-  reviewer-agent: sp-aks-reviewer-agent
+  operations-agent: id-agent-operations-agent-*
+  platform-agent: id-agent-platform-agent-*
+  upgrade-agent: id-agent-upgrade-agent-*
+  release-agent: id-agent-release-agent-*
+  capacity-agent: id-agent-capacity-agent-*
+  security-agent: id-agent-security-agent-*
+  onboarding-agent: id-agent-onboarding-agent-*
+  reviewer-agent: id-agent-reviewer-agent-*
 
 pullRequest:
   # Sections every agent pull request body must have (design section 15).
