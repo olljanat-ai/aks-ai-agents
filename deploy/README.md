@@ -48,6 +48,14 @@ With `git.platform: azure-devops` in `platform.yaml` and `git_platform = "azure-
 5. Branch policy status `aks-agents/reviewer-agent` is *not* required by itself – the merge gate reads it; the
    required status is `aks-agents/merge-gate`, authorised account = the gate identity.
 
+## Runbooks
+
+The runbooks repository holds one GitHub Actions workflow (`<runbook>.yml`, `workflow_dispatch`) or one Azure
+Pipelines pipeline named after the runbook (`halt-release`, `drain-cell`, `rollback-cell`, `suspend-kustomization`).
+Each must declare the inputs / parameters the agents send – `environment`, `cell`, `namespace`, `name`, `reason`,
+`requested_by`, `agent_run` (unused ones as optional) – because both platforms reject undeclared ones, and must
+enforce its own limits (never the last cell in traffic, only the previous tag, never `infra-*`) and page the on-call.
+
 ## Triggers
 
 | Trigger | Starts | How |
