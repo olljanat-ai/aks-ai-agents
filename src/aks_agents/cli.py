@@ -95,11 +95,22 @@ def cmd_run(args: argparse.Namespace, settings: Settings) -> int:
     return 0 if result.status in ("completed", "no_action_needed") else 1
 
 
+def cmd_permissions(args: argparse.Namespace, settings: Settings) -> int:
+    from .permissions import collect, report
+
+    usage = collect(args.runs or settings.runs_dir)
+    print(report(usage))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="aks-agent", description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("list", help="list the agents and what they can write").set_defaults(func=cmd_list)
     sub.add_parser("validate", help="validate the agent definitions").set_defaults(func=cmd_validate)
+    perm = sub.add_parser("permissions", help="derive least-privilege permissions from logged runs (section 17)")
+    perm.add_argument("--runs", help="directory with the runs (default AKS_AGENT_RUNS)")
+    perm.set_defaults(func=cmd_permissions)
     run = sub.add_parser("run", help="run one agent on a task")
     run.add_argument("agent")
     group = run.add_mutually_exclusive_group(required=True)
