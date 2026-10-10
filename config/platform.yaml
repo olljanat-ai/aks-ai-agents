@@ -34,19 +34,19 @@ environments:
     subscription: sub-aks-dev
     region: swedencentral
     resourceGroup: rg-aks-dev
-    logAnalyticsWorkspace: /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-mgmt/providers/Microsoft.OperationalInsights/workspaces/log-aks-dev
+    logAnalyticsWorkspaceId: 00000000-0000-0000-0000-000000000000   # customer ID of log-aks-dev
     clusters: [aks-dev-sl-az1, aks-dev-sl-az2]
   acc:
     subscription: sub-aks-acc
     region: swedencentral
     resourceGroup: rg-aks-acc
-    logAnalyticsWorkspace: /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-mgmt/providers/Microsoft.OperationalInsights/workspaces/log-aks-acc
+    logAnalyticsWorkspaceId: 00000000-0000-0000-0000-000000000000   # customer ID of log-aks-acc
     clusters: [aks-acc-sl-az1, aks-acc-sl-az2]
   prd:
     subscription: sub-aks-prd
     region: swedencentral
     resourceGroup: rg-aks-prd
-    logAnalyticsWorkspace: /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-mgmt/providers/Microsoft.OperationalInsights/workspaces/log-aks-prd
+    logAnalyticsWorkspaceId: 00000000-0000-0000-0000-000000000000   # customer ID of log-aks-prd
     clusters: [aks-prd-sl-az1, aks-prd-sl-az2, aks-prd-sl-az3]
 
 # Namespaces whose logs agents may read. Application logs may hold personal data and are never read.
