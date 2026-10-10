@@ -106,3 +106,48 @@ def test_node_images_and_sl_az3_follows_sl_az2():
     img = step(steps, "aks-prd-sl-az3", "node-image")
     assert (img.action, img.target) == ("upgrade", "AzureLinux3-202510.01.0")
     assert step(steps, "aks-prd-sl-az3").target == "1.33.7"
+
+
+def test_update_catalog_records_first_seen_and_keeps_human_dates():
+    from aks_agents.versions import update_catalog
+
+    existing = {
+        "minors": {"1.34": {"ga": "2025-10-01", "end_of_support": "2027-07-01"}},
+        "patches": {"1.34.1": "2025-11-01"},
+    }
+    get_versions = {
+        "values": [
+            {
+                "version": "1.34",
+                "isPreview": False,
+                "patchVersions": {"1.34.1": {}, "1.34.6": {}},
+                "capabilities": {"supportPlan": ["KubernetesOfficial", "AKSLongTermSupport"]},
+            },
+            {"version": "1.36", "isPreview": True, "patchVersions": {"1.36.0": {}}},
+        ]
+    }
+    out = update_catalog(existing, get_versions, ["AzureLinux3-202510.08.0"], dt.date(2026, 10, 10))
+    assert out["minors"]["1.34"] == {"ga": "2025-10-01", "end_of_support": "2027-07-01", "lts": True}
+    assert out["patches"] == {"1.34.1": "2025-11-01", "1.34.6": "2026-10-10"}
+    assert "1.36" not in out["minors"] and out["node_images"] == {"AzureLinux3-202510.08.0": "2026-10-10"}
+
+
+def test_plan_accepts_an_updated_catalog():
+    from aks_agents.versions import update_catalog
+
+    catalog = update_catalog(
+        CATALOG,
+        {
+            "values": [
+                {
+                    "version": "1.34",
+                    "patchVersions": {"1.34.4": {}},
+                    "capabilities": {"supportPlan": ["AKSLongTermSupport"]},
+                }
+            ]
+        },
+        [],
+        TODAY,
+    )
+    clusters = [{"environment": "dev", "name": "aks-dev-sl-az1", "kubernetes": "1.34.1"}]
+    assert step(plan(catalog, clusters, TODAY), "aks-dev-sl-az1").target == "1.34.4"

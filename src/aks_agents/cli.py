@@ -120,6 +120,23 @@ def cmd_versions(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def cmd_catalog(args: argparse.Namespace, settings: Settings) -> int:
+    import datetime as dt
+
+    import yaml
+
+    from .versions import update_catalog
+
+    path = Path(args.catalog)
+    catalog = yaml.safe_load(path.read_text()) if path.exists() else {}
+    get_versions = json.loads(Path(args.get_versions).read_text())
+    images = [line.strip() for line in Path(args.node_images).read_text().splitlines()] if args.node_images else []
+    today = dt.date.fromisoformat(args.today) if args.today else dt.date.today()
+    updated = update_catalog(catalog or {}, get_versions, [i for i in images if i], today)
+    path.write_text(yaml.safe_dump(updated, sort_keys=False))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="aks-agent", description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -139,6 +156,12 @@ def main(argv: list[str] | None = None) -> int:
     ver.add_argument("--emergency", action="store_true", help="emergency fast track (approved by the platform owner)")
     ver.add_argument("--all", action="store_true", help="also list clusters with nothing due")
     ver.set_defaults(func=cmd_versions)
+    cat = sub.add_parser("catalog", help="record first-seen dates of AKS versions and node images in the catalog")
+    cat.add_argument("--catalog", required=True, help="catalog file (YAML), updated in place")
+    cat.add_argument("--get-versions", required=True, help="output of az aks get-versions -l <region> -o json")
+    cat.add_argument("--node-images", help="file with one latest node image version per line")
+    cat.add_argument("--today", help="date to record (ISO), default today")
+    cat.set_defaults(func=cmd_catalog)
     run = sub.add_parser("run", help="run one agent on a task")
     run.add_argument("agent")
     group = run.add_mutually_exclusive_group(required=True)

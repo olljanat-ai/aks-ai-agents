@@ -48,10 +48,9 @@ def vkey(version: str) -> tuple[int, ...]:
     return tuple(int(p) for p in re.findall(r"\d+", version))
 
 
-def _date(value: str | dt.date | None) -> dt.date | None:
-    if value is None or isinstance(value, dt.date):
-        return value
-    return dt.date.fromisoformat(value)
+def _date(value: Any) -> Any:
+    """ISO date strings become dates; anything else (dates, flags such as ``lts: true``) is kept."""
+    return dt.date.fromisoformat(value) if isinstance(value, str) else value
 
 
 @dataclass
@@ -298,3 +297,38 @@ def _node_image_step(
 
 def to_dicts(steps: list[Step]) -> list[dict[str, Any]]:
     return [asdict(s) for s in steps]
+
+
+def update_catalog(
+    catalog: dict[str, Any], get_versions: dict[str, Any], node_images: list[str], today: dt.date
+) -> dict[str, Any]:
+    """Record when each version was first offered in the region.
+
+    ``get_versions`` is ``az aks get-versions -l <region> -o json``; ``node_images`` the latest node image versions
+    reported by ``az aks nodepool get-upgrades``. AKS does not publish release dates through the API, so the date a
+    version is first seen in the region is its release date for the update policy. End-of-support and LTS end dates
+    come from the AKS release calendar and are maintained by humans in the same file; they are never overwritten.
+    """
+    out = {
+        "minors": {k: dict(v) for k, v in (catalog.get("minors") or {}).items()},
+        "patches": dict(catalog.get("patches") or {}),
+        "node_images": dict(catalog.get("node_images") or {}),
+    }
+    stamp = today.isoformat()
+    for entry in get_versions.get("values", get_versions.get("orchestrators", [])) or []:
+        if entry.get("isPreview"):
+            continue
+        version = entry.get("version") or entry.get("orchestratorVersion", "")
+        if not version:
+            continue
+        info = out["minors"].setdefault(minor(version), {})
+        info.setdefault("ga", stamp)
+        if "AKSLongTermSupport" in ((entry.get("capabilities") or {}).get("supportPlan") or []):
+            info["lts"] = True
+        for patch in entry.get("patchVersions") or {}:
+            out["patches"].setdefault(patch, stamp)
+    for image in node_images:
+        out["node_images"].setdefault(image, stamp)
+    for section in ("minors", "patches", "node_images"):
+        out[section] = dict(sorted(out[section].items(), key=lambda kv: vkey(kv[0])))
+    return out
