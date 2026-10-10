@@ -13,6 +13,13 @@ from typing import Any
 
 import yaml
 
+# Granting the first name grants the whole group, with the same options.
+TOOL_GROUPS = {
+    "repo_read": ["repo_list", "repo_read", "repo_search"],
+    "repo_write": ["repo_write", "repo_replace", "repo_delete", "repo_diff"],
+    "design": ["design_list", "design_read", "design_search"],
+}
+
 
 @dataclass
 class ToolGrant:
@@ -47,13 +54,15 @@ class AgentDefinition:
         instructions = data.get("instructions", "")
         if instructions.endswith(".md"):
             instructions = (path.parent / instructions).read_text()
-        tools = []
+        tools: list[ToolGrant] = []
         for item in data.get("tools", []):
             if isinstance(item, str):
-                tools.append(ToolGrant(item))
+                name, options = item, {}
             else:
                 ((name, options),) = item.items()
-                tools.append(ToolGrant(name, options or {}))
+            for member in TOOL_GROUPS.get(name, [name]):
+                if all(g.name != member for g in tools):
+                    tools.append(ToolGrant(member, options or {}))
         model = data.get("model") or {}
         return cls(
             name=data["name"],

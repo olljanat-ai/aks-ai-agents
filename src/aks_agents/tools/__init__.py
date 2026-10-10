@@ -2,4 +2,4 @@
 
 
 def load_all() -> None:
-    from . import core  # noqa: F401
+    from . import core, github_tools, repo  # noqa: F401
