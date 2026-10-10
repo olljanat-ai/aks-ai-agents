@@ -101,10 +101,17 @@ class Limits:
 class GateConfig:
     limits: Limits
     tiers: TierRules
+    gate: dict[str, Any] = field(default_factory=dict)  # approvals, teams, agents, pullRequest of tiers.yaml
 
     @classmethod
     def load(cls, guardrails_dir: str | Path) -> GateConfig:
         root = Path(guardrails_dir)
         limits = yaml.safe_load((root / "limits.yaml").read_text()) or {}
         tiers = yaml.safe_load((root / "tiers.yaml").read_text()) or {}
-        return cls(limits=Limits(limits), tiers=TierRules.from_dict(tiers))
+        return cls(limits=Limits(limits), tiers=TierRules.from_dict(tiers), gate=tiers)
+
+    def agent_for_login(self, login: str) -> str | None:
+        for name, bot in (self.gate.get("agents") or {}).items():
+            if bot == login:
+                return name
+        return None

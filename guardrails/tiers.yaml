@@ -113,3 +113,34 @@ files:
 repositories:
   # Changes in these repositories are humans only.
   notAllowedForAgents: [guardrails, runbooks]
+
+# What each tier needs before the gate passes. Human approvals count only from members of the named teams, on the
+# head commit, from someone other than the author; agents' GitHub Apps are never team members.
+approvals:
+  low: { reviewerAgent: true, teams: [] }
+  medium: { reviewerAgent: true, teams: [platform] }
+  high: { reviewerAgent: true, teams: [platform, security] }
+
+teams:
+  platform: platform-engineers
+  security: security-engineers
+
+reviewerAgent:
+  check: reviewer-agent          # check run the reviewer agent publishes on the head commit
+
+# GitHub App bot login of each agent; agent pull requests come from agent/<name>/* branches.
+agents:
+  operations-agent: aks-operations-agent[bot]
+  platform-agent: aks-platform-agent[bot]
+  upgrade-agent: aks-upgrade-agent[bot]
+  release-agent: aks-release-agent[bot]
+  capacity-agent: aks-capacity-agent[bot]
+  security-agent: aks-security-agent[bot]
+  onboarding-agent: aks-onboarding-agent[bot]
+  reviewer-agent: aks-reviewer-agent[bot]
+
+pullRequest:
+  # Sections every agent pull request body must have (design section 15).
+  requiredSections: [Intent, Evidence, Design section, Rollback]
+  requiredTrailers: [Agent, Agent-Run]
+  incidentFixLabel: incident-fix  # counts only when a human added it

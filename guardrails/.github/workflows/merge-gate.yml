@@ -1,0 +1,107 @@
+# Merge gate (design section 15). Defined in the guardrails repository and attached to the IaC, fleet and design
+# repositories as a *required workflow* by an organisation ruleset, so that an agent cannot change the check by
+# changing the repository it is checked in.
+#
+# The repository's own CI uploads the plan for the head commit as artifacts:
+#   plan-<env>            terraform show -json / what-if JSON, file plan.json   (IaC repository)
+#   rendered-manifests    base/<env>/<cluster>/*.yaml and head/<env>/<cluster>/*.yaml (fleet repository)
+name: merge-gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
+  check_run:
+    types: [completed]
+  schedule:
+    - cron: "*/30 * * * *"   # re-evaluate waiting pull requests when change windows open
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: read
+  actions: read
+
+concurrency:
+  group: merge-gate-${{ github.event.pull_request.number || github.event.check_run.pull_requests[0].number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    if: github.event_name != 'check_run' || github.event.check_run.name != 'merge-gate'
+    runs-on: [self-hosted, management-vnet]
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ secrets.MERGE_GATE_TOKEN }}   # GitHub App token: members:read, pull_requests:write
+      GITHUB_TOKEN: ${{ secrets.MERGE_GATE_TOKEN }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Check out the guardrails (never the pull request's code)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.GUARDRAILS_REPOSITORY }}
+          ref: main
+          path: guardrails
+          token: ${{ secrets.MERGE_GATE_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the gate
+        run: pip install "aks-ai-agents @ git+https://github.com/${{ vars.AGENTS_REPOSITORY }}@${{ vars.AGENTS_REF }}"
+
+      - name: Pull requests to evaluate
+        id: prs
+        run: |
+          case "${{ github.event_name }}" in
+            pull_request|pull_request_review) echo "numbers=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT" ;;
+            check_run) echo "numbers=${{ join(github.event.check_run.pull_requests.*.number, ' ') }}" >> "$GITHUB_OUTPUT" ;;
+            schedule) echo "numbers=$(gh pr list -R "$REPO" --state open --json number -q '.[].number' | tr '\n' ' ')" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Evaluate
+        env:
+          NUMBERS: ${{ steps.prs.outputs.numbers }}
+        run: |
+          set -euo pipefail
+          status=0
+          for n in $NUMBERS; do
+            work="gate-$n"; mkdir -p "$work/plans"
+            sha=$(gh pr view "$n" -R "$REPO" --json headRefOid -q .headRefOid)
+            # Plans attached by CI for exactly this head commit; without them the gate waits.
+            run_id=$(gh run list -R "$REPO" --commit "$sha" --workflow "${{ vars.PLAN_WORKFLOW || 'ci' }}" \
+                       --status success --json databaseId -q '.[0].databaseId' || true)
+            args=()
+            if [ -n "$run_id" ]; then
+              gh run download "$run_id" -R "$REPO" -D "$work/plans" || true
+              for d in "$work"/plans/plan-*; do
+                [ -f "$d/plan.json" ] && args+=(--plan "${d##*/plan-}:$d/plan.json")
+              done
+              if [ -d "$work/plans/rendered-manifests" ]; then
+                args+=(--manifests-base "$work/plans/rendered-manifests/base" --manifests-head "$work/plans/rendered-manifests/head")
+              fi
+            fi
+            if [ ${#args[@]} -eq 0 ]; then
+              if [ "${{ vars.REPOSITORY_HAS_PLAN || 'true' }}" = "true" ]; then
+                echo "PR #$n: waiting for CI to attach the plan for $sha"; status=2; continue
+              fi
+              args+=(--no-plan)
+            fi
+            aks-gate collect --guardrails guardrails --repository "$REPO" --number "$n" \
+              --output "$work/pr.json" --changed-files "$work/files.txt"
+            set +e
+            aks-gate evaluate --guardrails guardrails --pr "$work/pr.json" --changed-files "$work/files.txt" \
+              "${args[@]}" --output "$work/decision.json" --summary "$work/summary.md" --markdown
+            code=$?
+            set -e
+            cat "$work/summary.md" >> "$GITHUB_STEP_SUMMARY"
+            gh pr comment "$n" -R "$REPO" --edit-last --body-file "$work/summary.md" 2>/dev/null \
+              || gh pr comment "$n" -R "$REPO" --body-file "$work/summary.md"
+            if [ "$(jq -r .autoMerge "$work/decision.json")" = "true" ]; then
+              gh pr merge "$n" -R "$REPO" --auto --squash
+            fi
+            [ $code -gt $status ] && status=$code
+          done
+          exit $status
