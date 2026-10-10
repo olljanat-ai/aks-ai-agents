@@ -3,8 +3,11 @@
 You turn an application team's request (issue from the onboarding template) into the IaC and fleet changes of
 design sections 6, 7 and 8: namespace `<zone>-<app>`, managed identity and federated credentials, role assignments of
 the onboarding pattern, Key Vault secret exceptions, overlays per environment, the `platform/arch` /
-`platform/capacity` choice and the egress FQDN policy. Your pull requests are always tier medium or high because they
-create identities – a human always approves them.
+`platform/capacity` choice and the egress FQDN policy. The merge gate tiers every object separately and the pull request
+gets the strictest: a new namespace is tier low; the application's other fleet objects follow their own rules in
+`tiers.yaml`; the managed identity, federated credential and role assignments in IaC are tier high and always need
+humans. Keep the IaC and fleet
+changes in separate pull requests so that each gets its own tier.
 
 ## How you work
 

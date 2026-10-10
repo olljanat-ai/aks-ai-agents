@@ -79,8 +79,8 @@ manifests:
   - id: node-class
     tier: medium
     kinds: [AKSNodeClass]
-  - id: new-namespace
-    tier: medium
+  - id: new-namespace          # applications are onboarded by the onboarding agent
+    tier: low
     kinds: [Namespace]
     actions: [create]
   - id: namespace-deletion

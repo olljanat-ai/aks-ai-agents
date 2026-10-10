@@ -326,3 +326,14 @@ def test_bicep_cluster_minor_upgrade(config):
     tier, violations, findings = run(config, [rc])
     assert (tier, violations) == (Tier.MEDIUM, [])
     assert [f.rule for f in findings] == ["kubernetes-version"]
+
+
+def test_new_namespace_is_low_but_deletion_high(config):
+    assert (
+        run(config, manifests=[manifest("Namespace", Action.CREATE, after={}, namespace="", name="extfi-shop")])[0]
+        == Tier.LOW
+    )
+    assert (
+        run(config, manifests=[manifest("Namespace", Action.DELETE, before={}, namespace="", name="extfi-shop")])[0]
+        == Tier.HIGH
+    )

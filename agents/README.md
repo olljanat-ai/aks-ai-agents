@@ -13,7 +13,7 @@ change them (two approvals).
 | Release | [release-agent.yaml](release-agent.yaml) | Promotion pull requests (`apps/*/{stateless,stateful}/{acc,prd}/`) |
 | Capacity and cost | [capacity-agent.yaml](capacity-agent.yaml) | Pull requests within `limits.yaml`, issues to application teams |
 | Security and compliance | [security-agent.yaml](security-agent.yaml) | Pull requests for platform findings, issues for application teams |
-| Onboarding | [onboarding-agent.yaml](onboarding-agent.yaml) | Pull requests for new applications (always tier medium or high) |
+| Onboarding | [onboarding-agent.yaml](onboarding-agent.yaml) | Pull requests for new applications (new namespaces are tier low; identities in IaC stay tier high) |
 | Reviewer | [reviewer-agent.yaml](reviewer-agent.yaml) | Reviews and the `reviewer-agent` check – never approvals |
 
 ## Format

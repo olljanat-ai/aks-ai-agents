@@ -59,7 +59,7 @@ merged and by whom.
 | Release | successful release in the previous environment | promotion pull request dev → acc → prd with release notes and risk summary |
 | Capacity and cost | weekly schedule, quota and budget alerts | pull requests within `limits.yaml`, issues to application teams |
 | Security and compliance | daily schedule, Defender and Key Vault events | pull requests for platform findings, issues for application teams |
-| Onboarding | onboarding request issue | pull requests creating namespace, identity, overlays (always tier medium/high) |
+| Onboarding | onboarding request issue | pull requests creating namespace (tier low), identity (tier high), overlays |
 | Reviewer | every pull request | review and the required `reviewer-agent` check – never an approval |
 
 What keeps them inside their role, independently of the model:
