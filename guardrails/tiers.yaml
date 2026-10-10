@@ -1,0 +1,115 @@
+# Risk tier rules of the merge gate (design section 15). The tier of a pull request is the strictest tier of any
+# rule that matches what its plan does. Semantic rules (versions, policy effects, image promotion, limits) are
+# implemented in aks_gate.rules and documented there.
+
+defaults:
+  resource: medium               # an IaC change no rule below knows
+  manifest: medium               # a rendered manifest change no rule below knows
+  file: medium                   # a changed file without a plan or manifest effect
+
+resources:
+  - id: identity
+    tier: high
+    types:
+      - Microsoft.Authorization/roleAssignments
+      - Microsoft.Authorization/roleDefinitions
+      - Microsoft.ManagedIdentity/userAssignedIdentities
+      - Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials
+  - id: network
+    tier: high
+    types:
+      - Microsoft.Network/virtualNetworks
+      - Microsoft.Network/virtualNetworks/subnets
+      - Microsoft.Network/virtualNetworks/virtualNetworkPeerings
+      - Microsoft.Network/networkSecurityGroups
+      - Microsoft.Network/networkSecurityGroups/securityRules
+      - Microsoft.Network/routeTables
+      - Microsoft.Network/routeTables/routes
+      - Microsoft.Network/azureFirewalls
+      - Microsoft.Network/firewallPolicies
+      - Microsoft.Network/firewallPolicies/ruleCollectionGroups
+      - Microsoft.Network/publicIPAddresses
+      - Microsoft.Network/privateEndpoints
+  - id: key-vault-access
+    tier: high
+    types: [Microsoft.KeyVault/vaults/accessPolicies]
+  - id: policy-exemption
+    tier: high
+    types: [Microsoft.Authorization/policyExemptions]
+  - id: locks
+    tier: high
+    types: [Microsoft.Authorization/locks]
+  - id: data-deletion
+    tier: high
+    actions: [delete, replace]
+    types:
+      - Microsoft.KeyVault/vaults
+      - Microsoft.KeyVault/vaults/keys
+      - Microsoft.KeyVault/vaults/secrets
+      - Microsoft.ContainerRegistry/registries
+      - Microsoft.Storage/storageAccounts
+      - Microsoft.Sql/servers
+      - Microsoft.Sql/servers/databases
+      - Microsoft.DBforPostgreSQL/flexibleServers
+      - Microsoft.DocumentDB/databaseAccounts
+      - Microsoft.Cache/redis
+      - Microsoft.ServiceBus/namespaces
+      - Microsoft.EventHub/namespaces
+      - Microsoft.Compute/diskEncryptionSets
+  - id: policy-definition
+    tier: medium
+    types: [Microsoft.Authorization/policyDefinitions, Microsoft.Authorization/policySetDefinitions]
+  - id: monitoring
+    tier: low
+    actions: [create, update]
+    types:
+      - Microsoft.Insights/metricAlerts
+      - Microsoft.Insights/scheduledQueryRules
+      - Microsoft.Insights/actionGroups
+      - Microsoft.Portal/dashboards
+      - Microsoft.Dashboard/grafana
+
+manifests:
+  - id: kubernetes-rbac
+    tier: high
+    kinds: [ClusterRole, ClusterRoleBinding, Role, RoleBinding]
+  - id: cluster-network-policy
+    tier: high
+    kinds: [CiliumClusterwideNetworkPolicy, CiliumEgressGatewayPolicy, CiliumCIDRGroup]
+  - id: node-class
+    tier: medium
+    kinds: [AKSNodeClass]
+  - id: new-namespace
+    tier: medium
+    kinds: [Namespace]
+    actions: [create]
+  - id: namespace-deletion
+    tier: high
+    kinds: [Namespace, PersistentVolumeClaim, StatefulSet]
+    actions: [delete]
+  - id: autoscaling
+    tier: low
+    kinds: [HorizontalPodAutoscaler, ScaledObject, NodePool, PodDisruptionBudget]
+    actions: [create, update]
+  - id: monitoring
+    tier: low
+    kinds: [PrometheusRule, ServiceMonitor, PodMonitor, ConfigMap]
+    namespaces: [monitoring, kube-system]
+  - id: monitoring-rules
+    tier: low
+    kinds: [PrometheusRule, ServiceMonitor, PodMonitor]
+
+files:
+  - id: pipelines
+    tier: high
+    paths: [".github/workflows/**", ".github/actions/**", "pipelines/**", ".azure-pipelines/**", "azure-pipelines*.yml"]
+  - id: codeowners
+    tier: high
+    paths: [".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"]
+  - id: documentation
+    tier: low
+    paths: ["**/*.md", "docs/**"]
+
+repositories:
+  # Changes in these repositories are humans only.
+  notAllowedForAgents: [guardrails, runbooks]

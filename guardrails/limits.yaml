@@ -1,0 +1,66 @@
+# Numbers the merge gate checks (design section 15, "Risk tiers"). Owned by humans: every change to this file
+# needs two approvals (platform + security). Agents can read it but never change it.
+
+agents:
+  enabled: true                  # kill switch: false makes the gate reject every agent pull request
+  # "Start small": a minimum tier per agent and environment, relaxed as the measured outcome allows.
+  minimumTier:
+    "*": { dev: low, acc: medium, prd: medium }
+  openPullRequests: { "*": 5 }
+
+environments:
+  dev:
+    changeWindows: []            # empty = always open
+    freezes: []
+    maxMergesPerDay: { "*": 20 }
+  acc:
+    changeWindows: ["Mon-Fri 07:00-17:00 Europe/Helsinki"]
+    freezes: []
+    maxMergesPerDay: { "*": 10 }
+  prd:
+    changeWindows: ["Mon-Thu 08:00-15:00 Europe/Helsinki"]
+    freezes: ["2026-12-18/2027-01-06"]
+    maxMergesPerDay: { upgrade-agent: 2, capacity-agent: 3, platform-agent: 5, "*": 2 }
+    maxCellsPerPullRequest: 1
+
+nodePools:                       # per environment overrides under environments.<env>.nodePools
+  maxNodesPerPool: { soft: 30, hard: 60 }        # classic node pools (system pool, stateful zone pools)
+  maxCpuPerZone: { soft: 960, hard: 1920 }       # NAP NodePool spec.limits.cpu, on-demand + spot of one zone
+  maxSpotShare: 0.5                              # spot NodePool cpu limit / zone total
+  allowedVmSizes:
+    - Standard_D4ads_v6
+    - Standard_D8ads_v6
+    - Standard_D16ads_v6
+    - Standard_D4pds_v6
+    - Standard_D8pds_v6
+    - Standard_D16pds_v6
+
+kubernetes:
+  # Filled by the upgrade agent's pull request, approved per tier.
+  allowedMinors: { stateless: ["1.33", "1.34"], stateful: ["1.34"] }
+  statefulClusterPattern: "^aks-[a-z]+-sf$"
+  cellPattern: "(sl-az[0-9]+|sf)"
+
+network:
+  # Address spaces reserved for the platform in the corporate IPAM; anything outside is rejected.
+  allowedAddressSpaces: ["10.64.0.0/12", "10.80.0.0/12", "10.96.0.0/12"]
+
+roleAssignments:
+  maxScope: resourceGroup        # wider (subscription, management group) is rejected
+  forbiddenRoles: [Owner, User Access Administrator, Role Based Access Control Administrator]
+
+forbidden:                       # rejected for agents; tier high for humans
+  - action: delete
+    types:
+      - Microsoft.KeyVault/vaults
+      - Microsoft.ContainerRegistry/registries
+      - Microsoft.Storage/storageAccounts
+      - Microsoft.Sql/servers
+      - Microsoft.DBforPostgreSQL/flexibleServers
+      - Microsoft.DocumentDB/databaseAccounts
+
+blastRadius:
+  maxResources: { soft: 25, hard: 200 }          # changed resources per pull request
+
+# Agent identities are managed only from the guardrails repository.
+agentIdentityPattern: "^(id|app)-agent-"
