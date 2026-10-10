@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Prepares one agent run and starts it. Everything here runs as the agent's own managed identity:
 #   1. Azure login with the user-assigned managed identity (no secrets);
-#   2. a short-lived GitHub App installation token minted from the agent's App key (Key Vault in sub-mgmt);
+#   2. a short-lived token for the Git platform: on GitHub a GitHub App installation token minted from the agent's
+#      App key (Key Vault in sub-mgmt); on Azure DevOps an Entra ID token of the same managed identity, which is an
+#      Azure DevOps user;
 #   3. the design repository (the specification) and the guardrails as data;
 #   4. a kubeconfig with one context per cluster of the environment (Entra ID, kubelogin, no admin credentials).
 #
 # Inputs (Container Apps job environment):
-#   AKS_AGENT_NAME, AKS_AGENT_ENV, AZURE_CLIENT_ID, AKS_AGENT_GITHUB_APP_ID, AKS_AGENT_GITHUB_INSTALLATION_ID,
-#   AKS_AGENT_GITHUB_KEY_VAULT, AKS_AGENT_GITHUB_KEY_SECRET, AKS_AGENT_TASK, optional AKS_AGENT_TRIGGER_JSON,
-#   AKS_AGENT_MODE, AKS_AGENT_DRY_RUN
+#   AKS_AGENT_NAME, AKS_AGENT_ENV, AZURE_CLIENT_ID, AKS_AGENT_TASK, optional AKS_AGENT_TRIGGER_JSON,
+#   AKS_AGENT_MODE, AKS_AGENT_DRY_RUN; GitHub only: AKS_AGENT_GITHUB_APP_ID, AKS_AGENT_GITHUB_INSTALLATION_ID,
+#   AKS_AGENT_GITHUB_KEY_VAULT, AKS_AGENT_GITHUB_KEY_SECRET
 set -euo pipefail
 
 : "${AKS_AGENT_NAME:?}" "${AKS_AGENT_ENV:?}" "${AZURE_CLIENT_ID:?}" "${AKS_AGENT_TASK:?}"
@@ -34,18 +36,37 @@ github_token() {
     "https://api.github.com/app/installations/$AKS_AGENT_GITHUB_INSTALLATION_ID/access_tokens" | jq -r .token
 }
 
-if [ -n "${AKS_AGENT_GITHUB_APP_ID:-}" ]; then
-  AKS_AGENT_GITHUB_TOKEN=$(github_token)
-  export AKS_AGENT_GITHUB_TOKEN
-fi
-
-design_repo=$(python -c 'import yaml,sys; print(yaml.safe_load(open(sys.argv[1]))["github"]["repositories"]["design"])' \
+platform=$(python -c 'import yaml,sys; print((yaml.safe_load(open(sys.argv[1])).get("git") or {}).get("platform", "github"))' \
   "$AKS_AGENT_ROOT/config/platform.yaml")
+case "$platform" in
+  github)
+    if [ -n "${AKS_AGENT_GITHUB_APP_ID:-}" ]; then
+      AKS_AGENT_GITHUB_TOKEN=$(github_token)
+      export AKS_AGENT_GITHUB_TOKEN
+    fi
+    ;;
+  azure-devops)
+    # 499b84ac-... is the Azure DevOps resource; the token is valid for about an hour, longer than a run.
+    AKS_AGENT_AZDO_TOKEN=$(az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798 \
+      --query accessToken -o tsv)
+    export AKS_AGENT_AZDO_TOKEN
+    ;;
+esac
+
+# The design repository (the specification), cloned with the platform's URL and credentials.
+mapfile -t design < <(python - "$AKS_AGENT_ROOT/config/platform.yaml" <<'PY'
+import sys
+from aks_agents.platforms import create
+from aks_agents.settings import PlatformConfig
+config = PlatformConfig.load(sys.argv[1])
+platform = create(config)
+print(platform.clone_url(config.repository("design")))
+print(platform.git_auth_header() or "")
+PY
+)
 auth=()
-if [ -n "${AKS_AGENT_GITHUB_TOKEN:-}" ]; then
-  auth=(-c "http.extraHeader=Authorization: Basic $(printf 'x-access-token:%s' "$AKS_AGENT_GITHUB_TOKEN" | base64 -w0)")
-fi
-git "${auth[@]}" clone --quiet --depth 1 "https://github.com/$design_repo.git" "$AKS_AGENT_DESIGN"
+[ -n "${design[1]:-}" ] && auth=(-c "http.extraHeader=${design[1]}")
+git "${auth[@]}" clone --quiet --depth 1 "${design[0]}" "$AKS_AGENT_DESIGN"
 
 # One kubeconfig context per cluster of the environment (user credentials only, converted to managed identity).
 clusters=$(python - "$AKS_AGENT_ROOT/config/platform.yaml" "$AKS_AGENT_ENV" <<'PY'

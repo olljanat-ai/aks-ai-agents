@@ -121,9 +121,10 @@ resource "azurerm_role_assignment" "log_tables" {
   principal_type     = "ServicePrincipal"
 }
 
-# Each identity reads only its own agent's GitHub App key (secret-scoped role assignment).
+# GitHub: each identity reads only its own agent's GitHub App key (secret-scoped role assignment). On Azure DevOps
+# the identity itself is the Azure DevOps user and no secret exists.
 resource "azurerm_role_assignment" "github_app_key" {
-  for_each             = local.pairs
+  for_each             = var.git_platform == "github" ? local.pairs : {}
   scope                = "${var.management.key_vault_id}/secrets/${var.github_apps[each.value.agent].key_secret_name}"
   role_definition_name = "Key Vault Secrets User"
   principal_id         = azurerm_user_assigned_identity.agent[each.key].principal_id

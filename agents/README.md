@@ -16,6 +16,10 @@ change them (two approvals).
 | Onboarding | [onboarding-agent.yaml](onboarding-agent.yaml) | Pull requests for new applications (new namespaces are tier low; identities in IaC stay tier high) |
 | Reviewer | [reviewer-agent.yaml](reviewer-agent.yaml) | Reviews and the `reviewer-agent` check – never approvals |
 
+Platform: the same definitions work on GitHub and Azure DevOps (`git.platform` in `config/platform.yaml`). On
+Azure DevOps, issues are Boards work items and runbooks are pipelines; `publish_review.ownLogin` lists the reviewer's
+login on both (`aks-reviewer-agent[bot]`, `id-agent-reviewer-agent-*`).
+
 ## Format
 
 ```yaml

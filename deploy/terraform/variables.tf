@@ -27,13 +27,24 @@ variable "environments" {
   }))
 }
 
+variable "git_platform" {
+  description = "github: each agent has a GitHub App. azure-devops: each agent identity is an Azure DevOps user (no secret)."
+  type        = string
+  default     = "github"
+  validation {
+    condition     = contains(["github", "azure-devops"], var.git_platform)
+    error_message = "git_platform must be github or azure-devops"
+  }
+}
+
 variable "github_apps" {
-  description = "Each agent's own GitHub App: ID, installation ID and the Key Vault secret holding its private key."
+  description = "GitHub only: each agent's own GitHub App – ID, installation ID and the Key Vault secret holding its private key."
   type = map(object({
     app_id          = string
     installation_id = string
     key_secret_name = string
   }))
+  default = {}
 }
 
 variable "platform_tables" {

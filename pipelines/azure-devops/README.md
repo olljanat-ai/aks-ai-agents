@@ -24,7 +24,9 @@ the agents behave the same; only the platform mechanisms differ.
 | Stale approvals dismissed on push | "Reset votes when new changes are pushed" (the gate counts every remaining approval as one on the head commit) |
 | Team membership | Required **group reviewers**; the gate reads who voted for the group (`votedFor`) |
 | Auto-merge for tier low | Auto-complete set by the gate identity |
-| Agent GitHub Apps | One service principal per agent, mapped in `tiers.yaml` `agentsAzureDevOps`; `contribute` only on `agent/<name>/*` (branch security), never on `main` |
+| Agent GitHub Apps | The agents' managed identities are Azure DevOps users (no secrets), matched in `tiers.yaml` `agentsAzureDevOps` (`id-agent-<agent>-*`); *Contribute* only on `agent/<name>/*` (branch security), never on `main` |
+| Issues | Boards work items (`git.azureDevOps.workItemType`), tagged `repo:<key>` plus the labels |
+| Runbooks (workflow dispatch) | A pipeline per runbook in the runbooks repository, queued with the inputs as template parameters |
 | `incident-fix` label set by a human | PR tag `incident-fix` **and** a human's comment containing `incident-fix` (Azure DevOps does not record who added a tag) |
 | `pull_request_review` / `check_run` events re-run the gate | `merge-gate-sweep.yml` every 30 minutes (optionally a service hook on "pull request updated" queueing it) |
 
@@ -42,6 +44,6 @@ the agents behave the same; only the platform mechanisms differ.
    update) and the **status policy** `aks-agents/merge-gate` (required, authorised account = gate identity).
 6. Agent service principals: branch security so each can create and push only `agent/<name>/*`.
 
-The agents' own repository tools (`create_pull_request`, `publish_review`, issues, runbook dispatch) speak the
-GitHub API today; with Azure DevOps they need the equivalent REST calls (pull requests, PR statuses, work items,
-pipeline runs). The merge gate supports both.
+The agents work on Azure DevOps when `platform.yaml` says `git.platform: azure-devops`: pull requests from one push on
+a new `agent/<name>/*` branch, issues as work items, the reviewer's threads and status, runbooks as pipeline runs.
+Identity and permission setup: [deploy/README.md](../../deploy/README.md#azure-devops).

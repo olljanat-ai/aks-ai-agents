@@ -3,16 +3,20 @@
 # AKS_AGENT_TRIGGER_JSON overrides (az containerapp job start --env-vars ...).
 
 locals {
-  job_env = { for key, p in local.pairs : key => {
-    AKS_AGENT_NAME                   = p.agent
-    AKS_AGENT_ENV                    = p.env
-    AKS_AGENT_MODE                   = var.mode
-    AZURE_CLIENT_ID                  = azurerm_user_assigned_identity.agent[key].client_id
-    AKS_AGENT_GITHUB_APP_ID          = var.github_apps[p.agent].app_id
-    AKS_AGENT_GITHUB_INSTALLATION_ID = var.github_apps[p.agent].installation_id
-    AKS_AGENT_GITHUB_KEY_VAULT       = var.management.key_vault_name
-    AKS_AGENT_GITHUB_KEY_SECRET      = var.github_apps[p.agent].key_secret_name
-  } }
+  job_env = { for key, p in local.pairs : key => merge(
+    {
+      AKS_AGENT_NAME  = p.agent
+      AKS_AGENT_ENV   = p.env
+      AKS_AGENT_MODE  = var.mode
+      AZURE_CLIENT_ID = azurerm_user_assigned_identity.agent[key].client_id
+    },
+    var.git_platform == "github" ? {
+      AKS_AGENT_GITHUB_APP_ID          = try(var.github_apps[p.agent].app_id, "")
+      AKS_AGENT_GITHUB_INSTALLATION_ID = try(var.github_apps[p.agent].installation_id, "")
+      AKS_AGENT_GITHUB_KEY_VAULT       = var.management.key_vault_name
+      AKS_AGENT_GITHUB_KEY_SECRET      = try(var.github_apps[p.agent].key_secret_name, "")
+    } : {},
+  ) }
 
   scheduled = { for key, p in local.pairs : key => merge(p, var.schedules[p.agent]) if contains(keys(var.schedules), p.agent) }
 }

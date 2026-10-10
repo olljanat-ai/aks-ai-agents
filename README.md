@@ -40,6 +40,7 @@ merged and by whom.
 | Path | Content |
 |---|---|
 | [`src/aks_agents/`](src/aks_agents) | Agent runtime: the Claude tool-use loop, tools with per-agent grants, audit trail, CLI |
+| [`src/aks_agents/platforms/`](src/aks_agents/platforms) | Git platforms: **GitHub** (issues, checks, Actions) and **Azure DevOps** (Boards work items, PR statuses, Pipelines) |
 | [`src/aks_agents/tools/`](src/aks_agents/tools) | Design and guardrails reading; repositories and pull requests; issues, reviews, runbooks; read-only `az`, Resource Graph, Log Analytics, `kubectl`, Flux; documentation sites |
 | [`src/aks_agents/versions.py`](src/aks_agents/versions.py) | Version pipeline: due upgrade steps per the update policy (deterministic, no LLM) |
 | [`src/aks_agents/permissions.py`](src/aks_agents/permissions.py) | Least-privilege roles derived from logged prototyping runs |
@@ -69,7 +70,8 @@ What keeps them inside their role, independently of the model:
   grant; every tool input is validated against its schema; denied calls are logged.
 - **Read-only by construction**: `az` and `kubectl` allow only read verbs in guarded mode (on top of read-only Azure
   roles); commands that reveal secrets or credentials, `Secret` objects and application logs are denied in every mode.
-- **Git is the only write path**: one signed commit per pull request through the GitHub API on `agent/<name>/*`,
+- **Git is the only write path**: one commit per pull request through the Git platform's API (GitHub or Azure
+  DevOps, `git.platform` in `platform.yaml`) on `agent/<name>/*`,
   with `Agent:` / `Agent-Run:` trailers and a body with intent, evidence, design section and rollback.
 - **The merge gate** computes the tier from the plan, never from a label: data deletion, identity, network, policy
   and pipeline changes need humans; agents cannot touch the guardrails, runbooks or their own identities at all;
