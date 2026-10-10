@@ -103,6 +103,23 @@ def cmd_permissions(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def cmd_versions(args: argparse.Namespace, settings: Settings) -> int:
+    import datetime as dt
+
+    import yaml
+
+    from .versions import plan, to_dicts
+
+    catalog = yaml.safe_load(Path(args.catalog).read_text())
+    clusters = yaml.safe_load(Path(args.clusters).read_text())
+    today = dt.date.fromisoformat(args.today) if args.today else dt.date.today()
+    steps = to_dicts(plan(catalog, clusters, today, emergency=args.emergency))
+    if not args.all:
+        steps = [s for s in steps if s["action"] != "none"]
+    print(json.dumps({"today": today.isoformat(), "emergency": args.emergency, "steps": steps}, indent=2))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="aks-agent", description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -111,6 +128,17 @@ def main(argv: list[str] | None = None) -> int:
     perm = sub.add_parser("permissions", help="derive least-privilege permissions from logged runs (section 17)")
     perm.add_argument("--runs", help="directory with the runs (default AKS_AGENT_RUNS)")
     perm.set_defaults(func=cmd_permissions)
+    ver = sub.add_parser("versions", help="version pipeline: due upgrade steps per the update policy (section 12)")
+    ver.add_argument(
+        "--catalog", required=True, help="AKS releases in the region (YAML/JSON: minors, patches, node_images)"
+    )
+    ver.add_argument(
+        "--clusters", required=True, help="current versions: [{environment, name, kubernetes, node_image}]"
+    )
+    ver.add_argument("--today", help="evaluation date (ISO), default today")
+    ver.add_argument("--emergency", action="store_true", help="emergency fast track (approved by the platform owner)")
+    ver.add_argument("--all", action="store_true", help="also list clusters with nothing due")
+    ver.set_defaults(func=cmd_versions)
     run = sub.add_parser("run", help="run one agent on a task")
     run.add_argument("agent")
     group = run.add_mutually_exclusive_group(required=True)
