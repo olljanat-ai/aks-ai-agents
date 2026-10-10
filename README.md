@@ -48,6 +48,7 @@ merged and by whom.
 | [`guardrails/`](guardrails) | Content of the guardrails repository: `limits.yaml`, `tiers.yaml`, merge gate and reviewer workflows |
 | [`config/platform.yaml`](config/platform.yaml) | Repositories, environments, clusters, model endpoint, documentation allow-list |
 | [`deploy/`](deploy) | Container image entrypoint and Terraform for identities, roles and Container Apps jobs |
+| [`pipelines/`](pipelines) | Pipeline examples for **GitHub Actions and Azure DevOps**: plans and rendered manifests for the gate, the version pipeline |
 
 ## The agents
 
@@ -94,8 +95,8 @@ aks-agent versions --catalog aks-releases.yaml --clusters current-versions.yaml
 
 # Merge gate
 aks-gate collect --guardrails guardrails --repository org/aks-iac --number 42 --output pr.json --changed-files files.txt
-aks-gate evaluate --guardrails guardrails --pr pr.json --changed-files files.txt \
-  --plan dev:plan-dev.json --manifests-base rendered/base --manifests-head rendered/head --markdown
+aks-gate evaluate --guardrails guardrails --pr pr.json --changed-files files.txt --artifacts ci-artifacts/ --markdown
+# Azure DevOps: collect-azdo / publish-azdo instead of collect (see pipelines/azure-devops)
 ```
 
 Runs need a Claude endpoint: the Claude API (`ANTHROPIC_API_KEY`, server-side refusal fallbacks) or Microsoft

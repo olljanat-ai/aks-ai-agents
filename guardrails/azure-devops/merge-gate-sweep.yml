@@ -1,0 +1,63 @@
+# Re-evaluates every open pull request of the platform repositories, because Azure DevOps does not re-run a
+# pull request pipeline when someone votes, a change window opens or the reviewer agent posts its status.
+# Uses the plan artifacts of the latest successful pull request build of the head commit.
+trigger: none
+pr: none
+schedules:
+  - cron: "*/30 * * * *"
+    displayName: Every 30 minutes
+    branches: { include: [main] }
+    always: true
+
+parameters:
+  - name: repositories          # repository name → has a plan
+    type: object
+    default:
+      aks-iac: true
+      aks-fleet: true
+      aks-design: false
+
+variables:
+  - group: merge-gate
+
+pool: { name: management-vnet }
+
+steps:
+  - checkout: self               # the guardrails repository
+    path: guardrails
+  - script: python3 -m pip install --quiet "$(AGENTS_PACKAGE)"
+    displayName: Install the gate
+  - ${{ each repo in parameters.repositories }}:
+      - script: |
+          set -euo pipefail
+          export AZURE_DEVOPS_EXT_PAT="$SYSTEM_ACCESSTOKEN"
+          org="$(System.CollectionUri)" project="$(System.TeamProject)"
+          for pr in $(az repos pr list --org "$org" -p "$project" -r "${{ repo.key }}" --status active \
+                        --query "[?!isDraft].pullRequestId" -o tsv); do
+            work="$(Agent.TempDirectory)/${{ repo.key }}-$pr"; mkdir -p "$work/artifacts"
+            sha=$(az repos pr show --org "$org" --id "$pr" --query lastMergeSourceCommit.commitId -o tsv)
+            # Only a build of exactly this head commit counts.
+            run=$(az pipelines runs list --org "$org" -p "$project" --branch "refs/pull/$pr/merge" \
+                    --reason pullRequest --result succeeded --top 10 \
+                    --query "[?triggerInfo.\"pr.sourceSha\"=='$sha'] | [0].id" -o tsv || true)
+            if [ -n "$run" ]; then
+              for name in $(az pipelines runs artifact list --org "$org" -p "$project" --run-id "$run" \
+                              --query "[?starts_with(name, 'plan-') || name == 'rendered-manifests'].name" -o tsv); do
+                az pipelines runs artifact download --org "$org" -p "$project" --run-id "$run" \
+                  --artifact-name "$name" --path "$work/artifacts/$name" --only-show-errors
+              done
+            fi
+            common=(--collection-url "$org" --project "$project" --repository "${{ repo.key }}" --number "$pr")
+            aks-gate collect-azdo "${common[@]}" --guardrails "$(Pipeline.Workspace)/guardrails" \
+              --output "$work/pr.json" --changed-files "$work/files.txt"
+            args=(--artifacts "$work/artifacts")
+            [ "${{ repo.value }}" = "True" ] || args+=(--no-plan)
+            aks-gate evaluate --guardrails "$(Pipeline.Workspace)/guardrails" --pr "$work/pr.json" \
+              --changed-files "$work/files.txt" "${args[@]}" --output "$work/decision.json" \
+              --summary "$work/summary.md" --markdown || true
+            [ -f "$work/decision.json" ] || { echo "PR $pr: no plan for $sha yet"; continue; }
+            aks-gate publish-azdo "${common[@]}" --decision "$work/decision.json"
+          done
+        displayName: Re-evaluate ${{ repo.key }}
+        env:
+          SYSTEM_ACCESSTOKEN: $(MERGE_GATE_TOKEN)

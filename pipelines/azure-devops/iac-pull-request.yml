@@ -1,0 +1,51 @@
+# IaC repository: pull request pipeline (Azure DevOps). Plans every environment with the read-only plan identity
+# and hands the plans to the merge gate. The pipeline must extend the guardrails template – the merge gate's
+# service connection and variable group have a "Required template" check that rejects anything else.
+trigger: none
+pr:
+  branches: { include: [main] }
+
+resources:
+  repositories:
+    - repository: guardrails
+      type: git
+      name: platform/aks-guardrails
+      ref: refs/heads/main
+
+parameters:
+  - name: environments
+    type: object
+    default: [dev, acc, prd]
+
+extends:
+  template: azure-devops/pull-request.yml@guardrails
+  parameters:
+    repoKey: iac
+    planStages:
+      - ${{ each env in parameters.environments }}:
+          - stage: plan_${{ env }}
+            displayName: Plan ${{ env }}
+            dependsOn: []
+            jobs:
+              - job: plan
+                pool: { name: management-vnet }
+                steps:
+                  - checkout: self
+                  - task: TerraformInstaller@1
+                    inputs: { terraformVersion: 1.13.3 }
+                  - task: AzureCLI@2
+                    displayName: terraform plan
+                    inputs:
+                      # Workload identity federation, Reader + state read only. The deploy connection is used
+                      # only by the deployment pipeline from main.
+                      azureSubscription: aks-iac-plan-${{ env }}
+                      addSpnToEnvironment: true
+                      scriptType: bash
+                      scriptLocation: inlineScript
+                      inlineScript: |
+                        set -euo pipefail
+                        export ARM_CLIENT_ID=$servicePrincipalId ARM_OIDC_TOKEN=$idToken ARM_TENANT_ID=$tenantId
+                        export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv) ARM_USE_OIDC=true
+                        bash pipelines/scripts/terraform-plan.sh ${{ env }} "$(Build.ArtifactStagingDirectory)"
+                  - publish: $(Build.ArtifactStagingDirectory)
+                    artifact: plan-${{ env }}

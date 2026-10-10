@@ -212,3 +212,28 @@ def test_cli_end_to_end(tmp_path, capsys):
     assert code == 0 and out["tier"] == "low" and out["autoMerge"] is True
     assert "Merge gate: pass" in (tmp_path / "summary.md").read_text()
     assert main(["evaluate", "--guardrails", str(ROOT / "guardrails"), "--pr", str(tmp_path / "pr.json")]) == 3
+
+
+def test_cli_discovers_artifacts_and_waits_without_them(tmp_path, capsys):
+    pr_file = tmp_path / "pr.json"
+    pr_file.write_text(
+        json.dumps(
+            {
+                "repository": "org/iac",
+                "number": 1,
+                "author": "alice",
+                "head_ref": "fix",
+                "head_sha": "abc",
+                "reviewer_agent_conclusion": "success",
+                "reviews": [{"user": "bob", "state": "APPROVED", "commit_id": "abc", "teams": ["platform"]}],
+            }
+        )
+    )
+    common = ["evaluate", "--guardrails", str(ROOT / "guardrails"), "--pr", str(pr_file), "--now", TUESDAY.isoformat()]
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    assert main([*common, "--artifacts", str(artifacts)]) == 2
+    (artifacts / "plan-dev").mkdir()
+    (artifacts / "plan-dev" / "plan.json").write_text(json.dumps({"format_version": "1.2", "resource_changes": []}))
+    capsys.readouterr()
+    assert main([*common, "--artifacts", str(artifacts)]) == 0

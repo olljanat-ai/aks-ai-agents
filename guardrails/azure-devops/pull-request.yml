@@ -1,0 +1,96 @@
+# Pull request pipeline template of the guardrails repository (Azure DevOps).
+#
+# Every pull request pipeline of the IaC, fleet and design repositories must `extends` this template; a
+# "Required template" check on the merge gate's service connection and variable group enforces it, so an agent
+# cannot change the gate by changing the repository it is checked in (the Azure DevOps counterpart of a GitHub
+# required workflow). The repository supplies only its plan stages; this template adds the reviewer agent and the
+# merge gate, which posts the `aks-agents/merge-gate` pull request status that the branch policy requires.
+#
+# Plan stages must publish:   plan-<env>/plan.json          (IaC repository)
+#                             rendered-manifests/{base,head} (fleet repository)
+
+parameters:
+  - name: repoKey               # iac | fleet | design – the key in platform.yaml
+    type: string
+  - name: planStages
+    type: stageList
+    default: []
+  - name: repositoryHasPlan     # false only for repositories without a plan (the design repository)
+    type: boolean
+    default: true
+
+stages:
+  - ${{ each stage in parameters.planStages }}:
+      - ${{ stage }}
+
+  # The reviewer agent runs in parallel with the plans; it publishes the aks-agents/reviewer-agent status itself.
+  - stage: reviewer_agent
+    displayName: Reviewer agent
+    dependsOn: []
+    condition: eq(variables['Build.Reason'], 'PullRequest')
+    jobs:
+      - job: start
+        pool: { name: management-vnet }
+        steps:
+          - checkout: none
+          - task: AzureCLI@2
+            displayName: Start the reviewer agent
+            inputs:
+              azureSubscription: aks-agent-dispatcher     # may only start the agents' Container Apps jobs
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+                trigger=$(jq -cn --arg repo "$(Build.Repository.Name)" --arg key "${{ parameters.repoKey }}" \
+                  --argjson number "$(System.PullRequest.PullRequestId)" --arg sha "$(System.PullRequest.SourceCommitId)" \
+                  --arg project "$(System.TeamProject)" \
+                  '{event: "pull_request", system: "azure-devops", project: $project, repository: $repo,
+                    repo_key: $key, number: $number, head_sha: $sha}')
+                az containerapp job start -g "$(AGENTS_RESOURCE_GROUP)" -n "job-reviewer-agent-$(REVIEWER_ENV)" \
+                  --container-name agent \
+                  --env-vars "AKS_AGENT_TASK=Review pull request $(System.PullRequest.PullRequestId) in the ${{ parameters.repoKey }} repository at $(System.PullRequest.SourceCommitId)." \
+                             "AKS_AGENT_TRIGGER_JSON=$trigger" \
+                  --only-show-errors
+
+  - stage: merge_gate
+    displayName: Merge gate
+    dependsOn:
+      - ${{ each stage in parameters.planStages }}:
+          - ${{ stage.stage }}
+    condition: and(succeeded(), eq(variables['Build.Reason'], 'PullRequest'))
+    variables:
+      - group: merge-gate          # MERGE_GATE_TOKEN (PAT of the gate identity), AGENTS_PACKAGE; required template
+    jobs:
+      - job: gate
+        pool: { name: management-vnet }
+        steps:
+          - checkout: guardrails     # never the pull request's code
+            path: guardrails
+          - download: current        # the plan artifacts of this run
+            patterns: |
+              plan-*/**
+              rendered-manifests/**
+          - script: python3 -m pip install --quiet "$(AGENTS_PACKAGE)"
+            displayName: Install the gate
+          - script: |
+              set -euo pipefail
+              common=(--collection-url "$(System.CollectionUri)" --project "$(System.TeamProject)"
+                      --repository "$(Build.Repository.Name)" --number "$(System.PullRequest.PullRequestId)")
+              aks-gate collect-azdo "${common[@]}" --guardrails "$(Pipeline.Workspace)/guardrails" \
+                --output pr.json --changed-files files.txt
+              args=(--artifacts "$(Pipeline.Workspace)")
+              [ "${{ parameters.repositoryHasPlan }}" = "True" ] || args+=(--no-plan)
+              set +e
+              aks-gate evaluate --guardrails "$(Pipeline.Workspace)/guardrails" --pr pr.json --changed-files files.txt \
+                "${args[@]}" --output decision.json --summary summary.md --markdown
+              code=$?
+              set -e
+              [ -f decision.json ] || { echo "no plan for this commit yet"; exit 0; }
+              aks-gate publish-azdo "${common[@]}" --decision decision.json \
+                --target-url "$(System.CollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)"
+              echo "##vso[task.uploadsummary]$PWD/summary.md"
+              # wait (2) is a pending status, not a failed build; the sweep re-evaluates when approvals arrive
+              [ $code -ne 1 ]
+            displayName: Evaluate and publish
+            env:
+              SYSTEM_ACCESSTOKEN: $(MERGE_GATE_TOKEN)

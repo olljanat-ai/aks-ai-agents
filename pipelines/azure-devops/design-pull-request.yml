@@ -1,0 +1,18 @@
+# Design repository: pull request pipeline (Azure DevOps). No plan – the gate tiers it by the changed files and
+# the reviewer agent checks the change against the rest of the design.
+trigger: none
+pr:
+  branches: { include: [main] }
+
+resources:
+  repositories:
+    - repository: guardrails
+      type: git
+      name: platform/aks-guardrails
+      ref: refs/heads/main
+
+extends:
+  template: azure-devops/pull-request.yml@guardrails
+  parameters:
+    repoKey: design
+    repositoryHasPlan: false

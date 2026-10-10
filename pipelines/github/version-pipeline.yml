@@ -1,0 +1,42 @@
+# IaC repository: .github/workflows/version-pipeline.yml (GitHub Actions). Computes the due upgrade steps of the
+# update policy every morning and starts the upgrade agent per environment (design section 12).
+name: version-pipeline
+
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Only print the due steps
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  versions:
+    runs-on: [self-hosted, management-vnet]
+    environment: version-pipeline   # federated credential of the version pipeline identity
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install --quiet "${{ vars.AGENTS_PACKAGE }}"
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.VERSION_PIPELINE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+      - name: Compute due steps and start the upgrade agent
+        env:
+          REGION: ${{ vars.REGION }}
+          ENVIRONMENTS: ${{ vars.ENVIRONMENTS }}          # "dev:<sub-id> acc:<sub-id> prd:<sub-id>"
+          CATALOG_ACCOUNT: ${{ vars.CATALOG_ACCOUNT }}
+          CATALOG_CONTAINER: ${{ vars.CATALOG_CONTAINER }}
+          AGENTS_RESOURCE_GROUP: ${{ vars.AGENTS_RESOURCE_GROUP }}
+          AGENTS_SUBSCRIPTION: ${{ vars.AGENTS_SUBSCRIPTION }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: bash pipelines/scripts/version-pipeline.sh

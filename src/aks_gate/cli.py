@@ -39,9 +39,26 @@ def build_plan(args: argparse.Namespace, repository: str) -> PlanSet:
     return plan
 
 
+def discover_artifacts(args: argparse.Namespace) -> None:
+    """Plan artifacts CI attached: ``plan-<env>/plan.json`` and ``rendered-manifests/{base,head}``."""
+    root = Path(args.artifacts)
+    args.plan = list(args.plan or [])
+    for directory in sorted(root.glob("plan-*")):
+        if (directory / "plan.json").is_file():
+            args.plan.append(f"{directory.name.removeprefix('plan-')}:{directory / 'plan.json'}")
+    if (root / "rendered-manifests" / "head").is_dir() and not args.manifests_head:
+        args.manifests_base = str(root / "rendered-manifests" / "base")
+        args.manifests_head = str(root / "rendered-manifests" / "head")
+
+
 def cmd_evaluate(args: argparse.Namespace) -> int:
     config = GateConfig.load(args.guardrails)
     pr = PullRequest.from_dict(json.loads(Path(args.pr).read_text()))
+    if args.artifacts:
+        discover_artifacts(args)
+        if not (args.plan or args.manifests_head or args.no_plan):
+            print(f"no plan artifacts in {args.artifacts} for this commit yet – waiting for CI", file=sys.stderr)
+            return EXIT["wait"]
     if not (args.plan or args.manifests_head or args.no_plan):
         print("no --plan or --manifests-head given; pass --no-plan for a repository without a plan", file=sys.stderr)
         return 3
@@ -99,6 +116,7 @@ def main(argv: list[str] | None = None) -> int:
     ev.add_argument("--plan", action="append", help="<env>:<terraform plan JSON or what-if JSON>, repeatable")
     ev.add_argument("--manifests-base", help="rendered manifests of the base: <dir>/<env>/<cluster>/*.yaml")
     ev.add_argument("--manifests-head", help="rendered manifests of the head")
+    ev.add_argument("--artifacts", help="directory with CI's plan artifacts: plan-<env>/plan.json, rendered-manifests/")
     ev.add_argument("--changed-files", help="file with one changed path per line")
     ev.add_argument("--no-plan", action="store_true", help="the repository has no plan (e.g. the design repository)")
     ev.add_argument("--now", help="evaluation time (ISO 8601), for tests and re-runs")

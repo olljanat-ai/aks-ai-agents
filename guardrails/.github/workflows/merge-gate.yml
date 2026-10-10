@@ -71,24 +71,11 @@ jobs:
             work="gate-$n"; mkdir -p "$work/plans"
             sha=$(gh pr view "$n" -R "$REPO" --json headRefOid -q .headRefOid)
             # Plans attached by CI for exactly this head commit; without them the gate waits.
-            run_id=$(gh run list -R "$REPO" --commit "$sha" --workflow "${{ vars.PLAN_WORKFLOW || 'ci' }}" \
+            run_id=$(gh run list -R "$REPO" --commit "$sha" --workflow "${{ vars.PLAN_WORKFLOW || 'pull-request' }}" \
                        --status success --json databaseId -q '.[0].databaseId' || true)
-            args=()
-            if [ -n "$run_id" ]; then
-              gh run download "$run_id" -R "$REPO" -D "$work/plans" || true
-              for d in "$work"/plans/plan-*; do
-                [ -f "$d/plan.json" ] && args+=(--plan "${d##*/plan-}:$d/plan.json")
-              done
-              if [ -d "$work/plans/rendered-manifests" ]; then
-                args+=(--manifests-base "$work/plans/rendered-manifests/base" --manifests-head "$work/plans/rendered-manifests/head")
-              fi
-            fi
-            if [ ${#args[@]} -eq 0 ]; then
-              if [ "${{ vars.REPOSITORY_HAS_PLAN || 'true' }}" = "true" ]; then
-                echo "PR #$n: waiting for CI to attach the plan for $sha"; status=2; continue
-              fi
-              args+=(--no-plan)
-            fi
+            [ -n "$run_id" ] && gh run download "$run_id" -R "$REPO" -D "$work/plans" || true
+            args=(--artifacts "$work/plans")
+            [ "${{ vars.REPOSITORY_HAS_PLAN || 'true' }}" = "true" ] || args+=(--no-plan)
             aks-gate collect --guardrails guardrails --repository "$REPO" --number "$n" \
               --output "$work/pr.json" --changed-files "$work/files.txt"
             set +e
@@ -96,6 +83,11 @@ jobs:
               "${args[@]}" --output "$work/decision.json" --summary "$work/summary.md" --markdown
             code=$?
             set -e
+            if [ ! -f "$work/decision.json" ]; then
+              echo "PR #$n: waiting for CI to attach the plan for $sha"
+              [ $code -gt $status ] && status=$code
+              continue
+            fi
             cat "$work/summary.md" >> "$GITHUB_STEP_SUMMARY"
             gh pr comment "$n" -R "$REPO" --edit-last --body-file "$work/summary.md" 2>/dev/null \
               || gh pr comment "$n" -R "$REPO" --body-file "$work/summary.md"

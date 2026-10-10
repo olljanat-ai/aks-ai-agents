@@ -1,0 +1,42 @@
+# Fleet repository: pull request pipeline (Azure DevOps). Validates and renders the manifests of the target branch
+# (base) and of the pull request (head) per environment and cluster, so the merge gate can diff them object by object.
+trigger: none
+pr:
+  branches: { include: [main] }
+
+resources:
+  repositories:
+    - repository: guardrails
+      type: git
+      name: platform/aks-guardrails
+      ref: refs/heads/main
+
+extends:
+  template: azure-devops/pull-request.yml@guardrails
+  parameters:
+    repoKey: fleet
+    planStages:
+      - stage: render
+        displayName: Validate and render
+        dependsOn: []
+        jobs:
+          - job: render
+            pool: { name: management-vnet }
+            steps:
+              - checkout: self
+                fetchDepth: 0
+              - script: |
+                  set -euo pipefail
+                  out="$(Build.ArtifactStagingDirectory)/rendered-manifests"
+                  target="$(System.PullRequest.TargetBranch)"
+                  git worktree add "$(Agent.TempDirectory)/base" "origin/${target#refs/heads/}"
+                  bash pipelines/scripts/render-fleet.sh "$(Agent.TempDirectory)/base" "$out/base"
+                  bash pipelines/scripts/render-fleet.sh . "$out/head"
+                  # Every rendered object must be valid for every Kubernetes minor running in the fleet.
+                  for minor in $(K8S_MINORS); do
+                    kubeconform -strict -summary -kubernetes-version "$minor.0" \
+                      -schema-location default -schema-location "$(CRD_SCHEMAS)" "$out/head"
+                  done
+                displayName: Render base and head
+              - publish: $(Build.ArtifactStagingDirectory)/rendered-manifests
+                artifact: rendered-manifests

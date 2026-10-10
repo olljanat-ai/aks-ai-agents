@@ -1,0 +1,43 @@
+# IaC repository: .github/workflows/pull-request.yml (GitHub Actions). Plans every environment with the read-only
+# plan identity and uploads plan-<env>/plan.json, which the merge gate (required workflow of the guardrails
+# repository) downloads for the head commit.
+name: pull-request
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write          # OIDC to the plan identities
+
+jobs:
+  plan:
+    runs-on: [self-hosted, management-vnet]
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev, acc, prd]
+    # GitHub environment "plan-<env>": its federated credential belongs to the read-only plan identity. The deploy
+    # identity trusts only repo:<org>/<repo>:environment:<env> on main, so a pull request can never apply.
+    environment: plan-${{ matrix.env }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.13.3, terraform_wrapper: false }
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.PLAN_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.SUBSCRIPTION_ID }}
+      - name: terraform plan
+        env:
+          ARM_USE_OIDC: "true"
+          ARM_CLIENT_ID: ${{ vars.PLAN_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ vars.SUBSCRIPTION_ID }}
+        run: bash pipelines/scripts/terraform-plan.sh "${{ matrix.env }}" "$RUNNER_TEMP/plan"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plan-${{ matrix.env }}
+          path: ${{ runner.temp }}/plan

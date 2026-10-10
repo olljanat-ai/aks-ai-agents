@@ -1,0 +1,33 @@
+# Version pipeline (Azure DevOps): computes the due upgrade steps of the update policy every morning and starts the
+# upgrade agent for each environment that has some (design section 12). Deterministic – no LLM decides what is due.
+trigger: none
+pr: none
+schedules:
+  - cron: "0 5 * * *"
+    displayName: Daily
+    branches: { include: [main] }
+    always: true
+
+parameters:
+  - name: dryRun                 # run manually with dryRun to only print the steps
+    type: boolean
+    default: false
+
+variables:
+  - group: version-pipeline      # REGION, ENVIRONMENTS, CATALOG_ACCOUNT, CATALOG_CONTAINER, AGENTS_*, AGENTS_PACKAGE
+
+pool: { name: management-vnet }
+
+steps:
+  - checkout: self
+  - script: python3 -m pip install --quiet "$(AGENTS_PACKAGE)"
+    displayName: Install aks-agent
+  - task: AzureCLI@2
+    displayName: Compute due steps and start the upgrade agent
+    inputs:
+      azureSubscription: aks-version-pipeline   # Reader on the environments, blob access to the catalog, job start
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: bash pipelines/scripts/version-pipeline.sh
+    env:
+      DRY_RUN: ${{ lower(parameters.dryRun) }}
