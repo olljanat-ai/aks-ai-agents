@@ -1,0 +1,41 @@
+# Starts the reviewer agent for every pull request of the IaC, fleet and design repositories (required workflow,
+# attached by the organisation ruleset like the merge gate). The workflow only starts the agent's Container Apps job;
+# the agent publishes its review and the `reviewer-agent` check run itself, with its own GitHub App.
+name: reviewer-agent
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  id-token: write   # OIDC to the dispatcher identity, which may only start agent jobs
+
+concurrency:
+  group: reviewer-agent-${{ github.repository }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  start:
+    if: ${{ !github.event.pull_request.draft && github.event.pull_request.user.login != 'aks-reviewer-agent[bot]' }}
+    runs-on: [self-hosted, management-vnet]
+    steps:
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AGENT_DISPATCHER_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.MGMT_SUBSCRIPTION_ID }}
+      - name: Start the reviewer agent
+        env:
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          key=$(case "${REPO##*/}" in *fleet*) echo fleet ;; *design*) echo design ;; *) echo iac ;; esac)
+          trigger=$(jq -cn --arg repo "$REPO" --arg key "$key" --argjson number "$NUMBER" --arg sha "$SHA" \
+            '{event: "pull_request", repository: $repo, repo_key: $key, number: $number, head_sha: $sha}')
+          az containerapp job start -g "${{ vars.AGENTS_RESOURCE_GROUP }}" -n "job-reviewer-agent-${{ vars.REVIEWER_ENV || 'prd' }}" \
+            --image "${{ vars.AGENT_IMAGE }}" --container-name agent \
+            --env-vars "AKS_AGENT_TASK=Review pull request #$NUMBER in the $key repository ($REPO) at $SHA." \
+                       "AKS_AGENT_TRIGGER_JSON=$trigger" \
+            --only-show-errors
