@@ -35,6 +35,23 @@ BUILTIN_ROLES = {
     "b1ff04bb-8a4e-4dc4-8eb5-8693973ce19b": "Azure Kubernetes Service RBAC Cluster Admin",
     "3498e952-d568-435e-9b2c-8d77e338d7f7": "Azure Kubernetes Service RBAC Admin",
     "a7ffa36f-339b-4b5c-8bdf-e2c188b2c0eb": "Azure Kubernetes Service RBAC Writer",
+    "4abbcc35-e782-43d8-92c5-2d3f1bd2253f": "Azure Kubernetes Service Cluster User Role",
+    "db79e9a7-68ee-4b58-9aeb-b90e7c24fcba": "Key Vault Certificate User",
+    "e147488a-f6f5-4113-8e2d-b22465e65bf6": "Key Vault Crypto Service Encryption User",
+    "12338af0-0e69-4776-bea7-57ae8d297424": "Key Vault Crypto User",
+    "21090545-7ca7-4776-b22c-e363652d74d2": "Key Vault Reader",
+    "2a2b9908-6ea1-4ae2-8e65-a410df84e7d1": "Storage Blob Data Reader",
+    "ba92f5b4-2d11-453d-a403-e96b0029c9fe": "Storage Blob Data Contributor",
+    "19e7f393-937e-4f77-808e-94535e297925": "Storage Queue Data Reader",
+    "974c5e8b-45b9-4653-ba55-5f855dd0fb88": "Storage Queue Data Contributor",
+    "69a216fc-b8fb-44d8-bc22-1f3c2cd27a39": "Azure Service Bus Data Sender",
+    "4f6d3b9b-027b-4f4c-9142-0e5a2a2247e0": "Azure Service Bus Data Receiver",
+    "2b629674-e913-4c01-ae53-ef4638d8f975": "Azure Event Hubs Data Sender",
+    "a638d3c7-ab3a-418d-83e6-5f17a39d4fde": "Azure Event Hubs Data Receiver",
+    "3913510d-42f4-4e42-8a64-420c390055eb": "Monitoring Metrics Publisher",
+    "43d0d8ad-25c7-4714-9337-8ba259a9fe05": "Monitoring Reader",
+    "4d97b98b-1d4f-4787-a291-c67834d212e7": "Network Contributor",
+    "f1a07417-d97a-45cb-824c-7a7467783830": "Managed Identity Operator",
 }
 
 VERSION_KEY_RE = re.compile(r"(^|\.)(kubernetes_version|orchestrator_version|kubernetesVersion|orchestratorVersion)$")
@@ -257,8 +274,17 @@ def check_role_assignment(ctx: Context, rc: ResourceChange) -> list[Finding]:
     findings = []
     limits = ctx.config.limits
     role = role_name(rc)
-    if role in (limits.get("roleAssignments.forbiddenRoles") or []):
-        findings.append(ctx.restricted("forbidden-role", f"role assignment of {role}", rc.address))
+    # Whitelist: only roles listed in limits.yaml (by name or role definition GUID). A role the plan does not show
+    # (unknown until apply) or a custom role that is not listed is treated as not allowed.
+    allowed = {str(r).lower() for r in limits.get("roleAssignments.allowedRoles") or []}
+    role_id = str(rc.attr("role_definition_id", "properties.roleDefinitionId", "roleDefinitionId") or "")
+    guid = role_id.rstrip("/").rsplit("/", 1)[-1].lower()
+    if not role:
+        findings.append(
+            ctx.restricted("role-not-allowed", "role assignment whose role is not known from the plan", rc.address)
+        )
+    elif role.lower() not in allowed and (not guid or guid not in allowed):
+        findings.append(ctx.restricted("role-not-allowed", f"{role} is not an allowed role", rc.address))
     scope = rc.attr("scope", "properties.scope")
     if scope is None and rc.source == "bicep":
         scope = rc.address.lower().split("/providers/microsoft.authorization/roleassignments/")[0]

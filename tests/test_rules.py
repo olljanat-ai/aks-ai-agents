@@ -110,7 +110,25 @@ def test_owner_role_and_subscription_scope(config):
         after={"role_definition_name": "Owner", "scope": "/subscriptions/abc"},
     )
     _, violations, _ = run(config, [ra])
-    assert sorted(violations) == ["forbidden-role", "role-assignment-scope"]
+    assert sorted(violations) == ["role-assignment-scope", "role-not-allowed"]
+
+
+def test_only_whitelisted_roles(config):
+    def ra(**after):
+        return resource(
+            "Microsoft.Authorization/roleAssignments",
+            Action.CREATE,
+            after={"scope": "/subscriptions/s/resourceGroups/rg-extfi-shop", **after},
+        )
+
+    tier, violations, _ = run(config, [ra(role_definition_name="Storage Blob Data Contributor")])
+    assert (tier, violations) == (Tier.HIGH, [])
+    assert run(config, [ra(role_definition_name="Contributor")])[1] == ["role-not-allowed"]
+    custom = "/subscriptions/s/providers/Microsoft.Authorization/roleDefinitions/11111111-2222-3333-4444-555555555555"
+    assert run(config, [ra(role_definition_id=custom)])[1] == ["role-not-allowed"]
+    assert run(config, [ra()])[1] == ["role-not-allowed"]  # role unknown in the plan
+    # humans: not rejected, but tier high
+    assert run(config, [ra(role_definition_name="Contributor")], agent=None)[:2] == (Tier.HIGH, [])
 
 
 def test_role_assignment_by_guid_in_resource_group_is_high(config):

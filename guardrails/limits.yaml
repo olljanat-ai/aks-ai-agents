@@ -47,7 +47,30 @@ network:
 
 roleAssignments:
   maxScope: resourceGroup        # wider (subscription, management group) is rejected
-  forbiddenRoles: [Owner, User Access Administrator, Role Based Access Control Administrator]
+  # Whitelist: role assignments of any other role are rejected for agents and tier high for humans. List built-in
+  # roles by name; custom roles by role definition GUID.
+  allowedRoles:
+    # application identities on their own resources (onboarding pattern)
+    - Key Vault Secrets User                     # only with an approved secret exception
+    - Key Vault Certificate User
+    - Storage Blob Data Reader
+    - Storage Blob Data Contributor
+    - Storage Queue Data Reader
+    - Storage Queue Data Contributor
+    - Azure Service Bus Data Sender
+    - Azure Service Bus Data Receiver
+    - Azure Event Hubs Data Sender
+    - Azure Event Hubs Data Receiver
+    - Monitoring Metrics Publisher
+    # platform identities (cluster modules)
+    - AcrPull
+    - Key Vault Crypto Service Encryption User   # disk encryption sets, KMS (section 18)
+    - Network Contributor                        # cluster identity on its own subnets
+    - Managed Identity Operator
+    # read-only
+    - Reader
+    - Monitoring Reader
+    - Key Vault Reader
 
 forbidden:                       # rejected for agents; tier high for humans
   - action: delete
