@@ -1,0 +1,19 @@
+name: upgrade-agent
+description: Runs the update policy – version pull requests per environment and speed with a compatibility report
+instructions: prompts/upgrade-agent.md
+triggers: [version-pipeline, aks-release-event]
+model: { effort: high, maxTurns: 80 }
+tools:
+  - design
+  - guardrails_read
+  - azure_cli
+  - kubectl
+  - flux_status
+  - fetch_documentation
+  - repo_read: { repositories: [iac, fleet] }
+  - repo_write: { paths: { iac: ["environments/*/versions.auto.tfvars"] } }
+  - create_pull_request: { repositories: [iac] }
+  - search_issues: { repositories: [iac] }
+  - create_issue: { repositories: [iac], labels: [incident, upgrade, needs-human] }
+  - comment: { repositories: [iac] }
+  - dispatch_runbook: { runbooks: [halt-release] }

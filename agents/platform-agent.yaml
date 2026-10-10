@@ -1,0 +1,21 @@
+name: platform-agent
+description: General IaC and fleet changes – incident fixes, platform component versions, configuration
+instructions: prompts/platform-agent.md
+triggers: [task-issue-from-operations-agent, issue-assigned-by-human]
+model: { effort: high, maxTurns: 100 }
+tools:
+  - design
+  - guardrails_read
+  - azure_cli
+  - azure_resource_graph
+  - kubectl
+  - flux_status
+  - fetch_documentation
+  - repo_read: { repositories: [iac, fleet] }
+  - repo_write:
+      paths:
+        iac: ["modules/**", "environments/*/*.tf", "environments/*/*.tfvars", "monitoring/**"]
+        fleet: ["infrastructure/**"]
+  - create_pull_request: { repositories: [iac, fleet] }
+  - search_issues: { repositories: [iac, fleet] }
+  - comment: { repositories: [iac, fleet] }

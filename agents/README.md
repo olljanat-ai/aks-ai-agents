@@ -1,0 +1,51 @@
+# Agent definitions
+
+One agent per responsibility (design [section 15](https://github.com/olljanat-ai/aks-design/blob/main/docs/15-ai-driven-day-2-operations.md#agents)),
+each with its own identity, tool grants and instructions, so that a confused or manipulated agent can only do what
+its role allows. In production these files live in the guardrails repository: agents can read them, only humans
+change them (two approvals).
+
+| Agent | Definition | Writes |
+|---|---|---|
+| Operations (on-call) | [operations-agent.yaml](operations-agent.yaml) | Issues, comments, safe runbook dispatch – never pull requests |
+| Platform change | [platform-agent.yaml](platform-agent.yaml) | Pull requests to IaC modules / environments and fleet `infrastructure/` |
+| Upgrade | [upgrade-agent.yaml](upgrade-agent.yaml) | Version pull requests (`environments/<env>/versions.auto.tfvars`) |
+| Release | [release-agent.yaml](release-agent.yaml) | Promotion pull requests (`apps/*/{stateless,stateful}/{acc,prd}/`) |
+| Capacity and cost | [capacity-agent.yaml](capacity-agent.yaml) | Pull requests within `limits.yaml`, issues to application teams |
+| Security and compliance | [security-agent.yaml](security-agent.yaml) | Pull requests for platform findings, issues for application teams |
+| Onboarding | [onboarding-agent.yaml](onboarding-agent.yaml) | Pull requests for new applications (always tier medium or high) |
+| Reviewer | [reviewer-agent.yaml](reviewer-agent.yaml) | Reviews and the `reviewer-agent` check – never approvals |
+
+## Format
+
+```yaml
+name: upgrade-agent
+description: one line
+instructions: prompts/upgrade-agent.md      # the agent's own instructions; common rules are added by the runtime
+triggers: [schedule, version-pipeline]      # documentation of what starts it (see deploy/)
+model: { effort: high, maxTurns: 80 }       # optional name: overrides platform.yaml model.name
+tools:
+  - design                                  # a group: design_list, design_read, design_search
+  - repo_read: { repositories: [iac, fleet] }
+  - repo_write: { paths: { iac: ["environments/*/versions.auto.tfvars"] } }
+  - create_pull_request: { repositories: [iac] }
+```
+
+Tool groups: `design` (list, read, search), `repo_read` (list, read, search), `repo_write` (write, replace, delete,
+diff). Path patterns are `fnmatch` patterns where `*` also crosses `/`.
+
+## Assumed repository layout
+
+The write paths assume this IaC repository layout (the fleet layout is the one in design section 10); adjust the
+patterns, not the agents, if the real layout differs:
+
+```text
+iac/
+├── modules/                       # environment, stateless cluster, stateful cluster, network modules
+├── environments/<env>/            # one root module per environment
+│   ├── versions.auto.tfvars       # target Kubernetes version and node image per cluster (upgrade agent)
+│   ├── capacity.auto.tfvars       # system / stateful node pool sizes (capacity agent)
+│   └── applications.auto.tfvars   # applications, identities, federated credentials (onboarding agent)
+├── policy/                        # Azure Policy definitions and assignments
+└── monitoring/                    # alert rules and dashboards
+```

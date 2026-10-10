@@ -1,0 +1,17 @@
+name: onboarding-agent
+description: Turns an application team's request into IaC and fleet changes – namespace, identity, overlays
+instructions: prompts/onboarding-agent.md
+triggers: [issue-from-onboarding-template]
+model: { effort: high, maxTurns: 100 }
+tools:
+  - design
+  - guardrails_read
+  - azure_resource_graph
+  - repo_read: { repositories: [iac, fleet] }
+  - repo_write:
+      paths:
+        iac: ["environments/*/applications.auto.tfvars"]
+        fleet: ["apps/**", "infrastructure/base/namespaces/**"]
+  - create_pull_request: { repositories: [iac, fleet] }
+  - search_issues: { repositories: [iac, fleet] }
+  - comment: { repositories: [iac, fleet] }

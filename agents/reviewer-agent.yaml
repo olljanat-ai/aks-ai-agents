@@ -1,0 +1,13 @@
+name: reviewer-agent
+description: Reviews every pull request against the design and the evidence; its review is a required check
+instructions: prompts/reviewer-agent.md
+triggers: [pull-request-opened, pull-request-synchronized]
+# Runs with a separate context and its own instructions. Where possible, pin a different model than the authors
+# use (model.name here overrides platform.yaml).
+model: { effort: high, maxTurns: 60 }
+tools:
+  - design
+  - guardrails_read
+  - pull_request_read: { repositories: [iac, fleet, design] }
+  - repo_read: { repositories: [iac, fleet, design] }
+  - publish_review: { repositories: [iac, fleet, design], ownLogin: "aks-reviewer-agent[bot]" }

@@ -1,0 +1,19 @@
+name: release-agent
+description: Prepares application promotion pull requests dev → acc → prd and watches the cell gates
+instructions: prompts/release-agent.md
+triggers: [successful-release-in-previous-environment]
+model: { effort: medium, maxTurns: 60 }
+tools:
+  - design
+  - guardrails_read
+  - flux_status
+  - log_analytics_query
+  - repo_read: { repositories: [fleet] }
+  - repo_write:
+      paths:
+        fleet: ["apps/*/stateless/acc/*", "apps/*/stateless/prd/*", "apps/*/stateful/acc/*", "apps/*/stateful/prd/*"]
+  - create_pull_request: { repositories: [fleet] }
+  - pull_request_read: { repositories: [fleet] }
+  - search_issues: { repositories: [fleet] }
+  - comment: { repositories: [fleet] }
+  - dispatch_runbook: { runbooks: [halt-release] }

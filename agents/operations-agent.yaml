@@ -1,0 +1,19 @@
+name: operations-agent
+description: On-call – triages alerts, diagnoses, verifies fixes, dispatches safe runbooks, drafts incident reports
+instructions: prompts/operations-agent.md
+triggers: [azure-monitor-alert, flux-notification, failed-pipeline, schedule-daily, merged-pull-request]
+model: { effort: high, maxTurns: 80 }
+tools:
+  - design
+  - guardrails_read
+  - azure_cli
+  - azure_resource_graph
+  - log_analytics_query
+  - kubectl
+  - flux_status
+  - repo_read: { repositories: [iac, fleet] }
+  - search_issues: { repositories: [iac, fleet] }
+  - create_issue: { repositories: [iac, fleet], labels: [incident, task, health-report, drift, platform-agent, needs-human] }
+  - comment: { repositories: [iac, fleet] }
+  - pull_request_read: { repositories: [iac, fleet] }
+  - dispatch_runbook: { runbooks: [halt-release, drain-cell, rollback-cell, suspend-kustomization] }
