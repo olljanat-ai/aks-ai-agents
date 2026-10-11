@@ -3,7 +3,7 @@
 Every rule produces :class:`Finding` objects. A finding either raises the tier of the pull request or – when it is a
 *violation* – rejects the pull request outright, whatever approvals it has. Declarative rules from ``tiers.yaml`` are
 applied first; the semantic rules below then explain changes the declarative rules cannot (versions, policy effects,
-image promotion, limits). A change no rule explains gets the default tier of its kind.
+image promotion, limits, vertical scaling). A change no rule explains gets the default tier of its kind.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .config import GateConfig, Rule, path_matches
-from .manifests import container_images, without_images
+from .manifests import WORKLOAD_KINDS, container_images, resource_values, without_images, without_resources
 from .model import Action, ManifestChange, PlanSet, ResourceChange, Tier
 
 ENV_ORDER = ["dev", "acc", "prd"]
@@ -511,6 +511,136 @@ def check_nap_node_pools(ctx: Context) -> list[Finding]:
     return findings
 
 
+MEMORY_UNITS = {
+    "Ki": 2**10, "Mi": 2**20, "Gi": 2**30, "Ti": 2**40,
+    "k": 10**3, "K": 10**3, "M": 10**6, "G": 10**9, "T": 10**12,
+}  # fmt: skip
+
+
+def _memory(value: Any) -> float | None:
+    if value is None:
+        return None
+    s = str(value)
+    for suffix, factor in MEMORY_UNITS.items():
+        if s.endswith(suffix):
+            s, scale = s[: -len(suffix)], factor
+            break
+    else:
+        scale = 1
+    try:
+        return float(s) * scale
+    except ValueError:
+        return None
+
+
+def _quantity(resource: str, value: Any) -> float | None:
+    return _cpu(value) if resource == "cpu" else _memory(value)
+
+
+def _stateful_cluster(ctx: Context, cluster: str) -> bool:
+    pattern = ctx.config.limits.get("kubernetes.statefulClusterPattern", r"-sf$")
+    return cluster == "sf" or cluster.endswith("-sf") or bool(re.search(pattern, cluster))
+
+
+def _max_allowed(ctx: Context, mc: ManifestChange, what: str, resource: str, value: Any) -> list[Finding]:
+    """A per-container CPU / memory value against ``rightSizing.maxAllowed``: over hard = rejected, over soft =
+    medium."""
+    quantity = _quantity(resource, value)
+    if quantity is None:
+        return [Finding("right-sizing", f"{what}: {resource} {value!r} is not a quantity", mc.key, Tier.MEDIUM)]
+    limits = ctx.config.limits
+    hard = _quantity(resource, limits.env(mc.environment, f"rightSizing.maxAllowed.{resource}.hard"))
+    soft = _quantity(resource, limits.env(mc.environment, f"rightSizing.maxAllowed.{resource}.soft"))
+    if hard is not None and quantity > hard:
+        return [Finding("right-sizing-max", f"{what}: {resource} {value} over the hard limit", mc.key, violation=True)]
+    if soft is not None and quantity > soft:
+        return [Finding("right-sizing-max", f"{what}: {resource} {value} over the soft limit", mc.key, Tier.MEDIUM)]
+    return []
+
+
+def check_vertical_pod_autoscaler(ctx: Context, mc: ManifestChange) -> tuple[list[Finding], bool]:
+    """``VerticalPodAutoscaler`` of an application: the VPA updater resizes its pods in place (Kubernetes in-place
+    pod resize), online and without a pull request, so the object itself is the guardrail. Low when its mode,
+    controlled values and ``maxAllowed`` bounds are inside ``rightSizing`` of ``limits.yaml``."""
+    if mc.kind != "VerticalPodAutoscaler":
+        return [], False
+    if mc.action == Action.DELETE:
+        return [Finding("right-sizing", "VPA removed; pods return to the requests in Git", mc.key, Tier.LOW)], True
+    limits = ctx.config.limits
+    spec = (mc.after or {}).get("spec") or {}
+    mode = (spec.get("updatePolicy") or {}).get("updateMode")
+    # VPA default Auto; YAML 1.1 reads an unquoted Off as false
+    mode = "Auto" if mode is None else "Off" if mode is False else str(mode)
+    stateful = _stateful_cluster(ctx, mc.cluster)
+    allowed = limits.env(mc.environment, "rightSizing.statefulUpdateModes" if stateful else "rightSizing.updateModes")
+    findings: list[Finding] = []
+    if allowed is not None and mode not in [("Off" if m is False else str(m)) for m in allowed]:
+        if stateful:
+            findings.append(ctx.restricted("right-sizing-mode", f"VPA mode {mode} in the stateful cluster", mc.key))
+        else:
+            findings.append(Finding("right-sizing-mode", f"VPA mode {mode} not in {allowed}", mc.key, Tier.MEDIUM))
+    if mode != "Off":
+        policies = (spec.get("resourcePolicy") or {}).get("containerPolicies") or []
+        actuated = [p for p in policies if isinstance(p, dict) and p.get("mode") != "Off"]
+        if not actuated:
+            findings.append(Finding("right-sizing-unbounded", "VPA without maxAllowed", mc.key, Tier.MEDIUM))
+        controlled = limits.env(mc.environment, "rightSizing.controlledValues") or []
+        for policy in actuated:
+            name = f"container {policy.get('containerName', '*')}"
+            values = policy.get("controlledValues", "RequestsAndLimits")  # the VPA default
+            if controlled and values not in controlled:
+                findings.append(
+                    Finding("right-sizing-values", f"{name}: controlledValues {values}", mc.key, Tier.MEDIUM)
+                )
+            max_allowed = policy.get("maxAllowed") or {}
+            for resource in policy.get("controlledResources") or ["cpu", "memory"]:
+                if resource not in max_allowed:
+                    findings.append(
+                        Finding("right-sizing-unbounded", f"{name}: no maxAllowed {resource}", mc.key, Tier.MEDIUM)
+                    )
+    for policy in (spec.get("resourcePolicy") or {}).get("containerPolicies") or []:
+        if isinstance(policy, dict):
+            for resource, value in (policy.get("maxAllowed") or {}).items():
+                if resource in ("cpu", "memory"):
+                    what = f"container {policy.get('containerName', '*')} maxAllowed"
+                    findings += _max_allowed(ctx, mc, what, resource, value)
+    if not any(f.tier and f.tier > Tier.LOW or f.violation for f in findings):
+        findings.append(Finding("right-sizing", f"VPA ({mode}) within rightSizing limits", mc.key, Tier.LOW))
+    return findings, True
+
+
+def check_resources_only(ctx: Context, mc: ManifestChange) -> tuple[list[Finding], bool]:
+    """A workload update that changes nothing but CPU / memory requests and limits (container or pod-level): the
+    right-sizing baseline in Git. Low when every value moves at most ``rightSizing.maxStepFactor`` and stays under
+    ``maxAllowed``; medium in the stateful cluster, where capacity changes are planned changes."""
+    if mc.kind not in WORKLOAD_KINDS or mc.action != Action.UPDATE:
+        return [], False
+    before, after = resource_values(mc.before), resource_values(mc.after)
+    if before == after or without_resources(mc.before) != without_resources(mc.after):
+        return [], False
+    factor = float(ctx.config.limits.env(mc.environment, "rightSizing.maxStepFactor", 2))
+    findings: list[Finding] = []
+    for path in sorted(set(before) | set(after)):
+        old, new = before.get(path), after.get(path)
+        if old == new:
+            continue
+        resource = path.rsplit("/", 1)[-1]
+        if old is None or new is None:
+            verb = "adds" if old is None else "removes"
+            findings.append(Finding("right-sizing-step", f"{verb} {path}", mc.key, Tier.MEDIUM))
+            continue
+        a, b = _quantity(resource, old), _quantity(resource, new)
+        if not a or not b or max(a, b) / min(a, b) > factor:
+            findings.append(Finding("right-sizing-step", f"{path} {old} → {new} over ×{factor:g}", mc.key, Tier.MEDIUM))
+        if not path.startswith("pod/"):
+            findings += _max_allowed(ctx, mc, path, resource, new)
+    if _stateful_cluster(ctx, mc.cluster):
+        findings.append(Finding("right-sizing-stateful", "resources in the stateful cluster", mc.key, Tier.MEDIUM))
+    if not any(f.tier and f.tier > Tier.LOW or f.violation for f in findings):
+        findings.append(Finding("right-sizing", "requests / limits within rightSizing limits", mc.key, Tier.LOW))
+    return findings, True
+
+
 def _previous_env(env: str) -> str | None:
     if env in ENV_ORDER and ENV_ORDER.index(env) > 0:
         return ENV_ORDER[ENV_ORDER.index(env) - 1]
@@ -623,8 +753,10 @@ def evaluate(plan: PlanSet, config: GateConfig, agent: str | None) -> list[Findi
                 findings.append(Finding(rule.id, f"{mc.action} {mc.kind}", mc.key, rule.tier))
                 explained = True
                 break
-        if not explained:
-            found, explained = check_image_promotion(ctx, mc)
+        for check in (check_vertical_pod_autoscaler, check_resources_only, check_image_promotion):
+            if explained:
+                break
+            found, explained = check(ctx, mc)
             findings += found
         if not explained:
             findings.append(Finding("default-manifest", f"{mc.action} {mc.kind}", mc.key, tiers.default_manifest))

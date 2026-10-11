@@ -141,3 +141,67 @@ def without_images(obj: dict[str, Any] | None) -> Any:
         return node
 
     return walk(obj)
+
+
+WORKLOAD_KINDS = {"Deployment", "StatefulSet", "DaemonSet", "ReplicaSet", "Job", "CronJob", "Pod"}
+
+
+def resource_values(obj: dict[str, Any] | None) -> dict[str, str]:
+    """``{path: quantity}`` of every CPU / memory request and limit of a workload: per container
+    (``containers/<name>/requests/cpu``) and pod-level (``pod/limits/memory``, Kubernetes 1.34+ ``spec.resources``)."""
+    if not obj:
+        return {}
+    values: dict[str, str] = {}
+
+    def add(prefix: str, resources: Any) -> None:
+        if not isinstance(resources, dict):
+            return
+        for kind in ("requests", "limits"):
+            for name, quantity in (resources.get(kind) or {}).items():
+                if name in ("cpu", "memory"):
+                    values[f"{prefix}/{kind}/{name}"] = str(quantity)
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            if isinstance(node.get("containers"), list):  # a pod spec
+                add("pod", node.get("resources"))
+                for key in ("initContainers", "containers"):
+                    for container in node.get(key) or []:
+                        if isinstance(container, dict):
+                            add(f"{key}/{container.get('name', '?')}", container.get("resources"))
+            for key, value in node.items():
+                if key not in ("containers", "initContainers") and isinstance(value, dict | list):
+                    walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(obj.get("spec") or {})
+    return values
+
+
+def without_resources(obj: dict[str, Any] | None) -> Any:
+    """Copy of an object with every container and pod-level ``resources`` removed – to check that only resources
+    changed."""
+    if obj is None:
+        return None
+
+    def walk(node: Any) -> Any:
+        if isinstance(node, dict):
+            pod_spec = isinstance(node.get("containers"), list)
+            out = {}
+            for key, value in node.items():
+                if pod_spec and key == "resources":
+                    continue
+                if key in ("containers", "initContainers") and isinstance(value, list):
+                    out[key] = [
+                        {k: v for k, v in c.items() if k != "resources"} if isinstance(c, dict) else c for c in value
+                    ]
+                else:
+                    out[key] = walk(value)
+            return out
+        if isinstance(node, list):
+            return [walk(i) for i in node]
+        return node
+
+    return walk(obj)

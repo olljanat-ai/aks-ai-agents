@@ -74,8 +74,9 @@ variable "schedules" {
     task = string
   }))
   default = {
-    operations-agent = { cron = "15 5 * * *", task = "Write the daily health report for this environment." }
-    security-agent   = { cron = "45 5 * * *", task = "Run the daily security and compliance review for this environment." }
-    capacity-agent   = { cron = "30 6 * * 1", task = "Run the weekly capacity and cost review for this environment." }
+    operations-agent  = { cron = "15 5 * * *", task = "Write the daily health report for this environment." }
+    security-agent    = { cron = "45 5 * * *", task = "Run the daily security and compliance review for this environment." }
+    capacity-agent    = { cron = "30 6 * * 1", task = "Run the weekly capacity and cost review for this environment." }
+    rightsizing-agent = { cron = "0 7 * * *", task = "Run the daily right-sizing review for this environment." }
   }
 }

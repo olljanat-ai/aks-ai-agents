@@ -8,7 +8,7 @@ git:
   repositories:
     iac: example-org/aks-iac
     fleet: example-org/aks-fleet
-    design: olljanat-ai/aks-design
+    design: onek8s/onek8s.github.io
     runbooks: example-org/aks-runbooks
     guardrails: example-org/aks-guardrails
   azureDevOps:                   # used when platform is azure-devops

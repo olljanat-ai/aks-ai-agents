@@ -35,9 +35,23 @@ nodePools:                       # per environment overrides under environments.
     - Standard_D8pds_v6
     - Standard_D16pds_v6
 
+rightSizing:                     # per environment overrides under environments.<env>.rightSizing
+  # VerticalPodAutoscaler objects of applications. The VPA updater resizes pods in place, online, within these
+  # bounds; agents tune the bounds and modes by pull request.
+  updateModes: ["Off", Initial, InPlaceOrRecreate]  # other modes (Recreate, Auto) = medium
+  statefulUpdateModes: ["Off"]                     # stateful cluster: recommendations only
+  controlledValues: [RequestsOnly]                 # RequestsAndLimits = medium
+  maxAllowed:                                      # per container (VPA maxAllowed, resources in Git)
+    cpu: { soft: 4, hard: 16 }
+    memory: { soft: 16Gi, hard: 64Gi }
+  # A change of nothing but requests / limits in a workload (container or pod-level resources): each value may move
+  # at most this factor up or down; more = medium.
+  maxStepFactor: 2
+
 kubernetes:
-  # Filled by the upgrade agent's pull request, approved per tier.
-  allowedMinors: { stateless: ["1.33", "1.34"], stateful: ["1.34"] }
+  # 1.36 is the platform floor (every cluster starts on it); newer minors are added by the upgrade agent's pull
+  # request, approved per tier.
+  allowedMinors: { stateless: ["1.36"], stateful: ["1.36"] }
   statefulClusterPattern: "^aks-[a-z]+-sf$"
   cellPattern: "(sl-az[0-9]+|sf)"
 

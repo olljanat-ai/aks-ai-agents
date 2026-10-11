@@ -1,0 +1,20 @@
+name: rightsizing-agent
+description: Online pod right-sizing – VPA in-place resize bounds and modes, resource baselines in Git, resize health
+instructions: prompts/rightsizing-agent.md
+triggers: [schedule-daily, right-sizing-task-issue]
+model: { effort: high, maxTurns: 100 }
+tools:
+  - design
+  - guardrails_read
+  - log_analytics_query
+  - kubectl
+  - repo_read: { repositories: [iac, fleet] }
+  # Only the platform-managed right-sizing files of the stateless overlays: the VPA object and the resources patch.
+  # Application base manifests, HPA / KEDA objects and the stateful overlays stay with the application team.
+  - repo_write:
+      paths:
+        fleet: ["apps/*/stateless/*/vpa.yaml", "apps/*/stateless/*/resources.yaml"]
+  - create_pull_request: { repositories: [fleet] }
+  - search_issues: { repositories: [iac, fleet] }
+  - create_issue: { repositories: [iac, fleet], labels: [right-sizing, application-team, capacity, needs-human] }
+  - comment: { repositories: [iac, fleet] }

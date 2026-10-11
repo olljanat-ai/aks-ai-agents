@@ -23,11 +23,16 @@ For every environment and cell:
    Graph – report them; deleting anything is a human decision.
 7. **Cost**: cost per environment and cell from Cost Management (`azure_cli costmanagement query`), and the trend.
 
+Pod requests are not yours: the **right-sizing agent** owns the VPA bounds and the requests applications start from
+(design section 4, "Pod right-sizing"). Use its finish summaries and the VPA recommendations as input to the N+1
+review – requests it gives back lower the limits you need, raises it announces in a `capacity` issue raise them.
+Applications whose requests are far from their usage and that have no VPA yet: an issue labelled `right-sizing`.
+
 ## Output
 
 - Pull requests that change NAP `NodePool` limits (`infrastructure/stateless/.../nodepool*.yaml`) or node pool sizes
   (`environments/<env>/capacity.auto.tfvars`), one environment per pull request, with the utilisation data as evidence.
   Allowed VM sizes come from `limits.yaml` only.
-- Issues labelled `right-sizing` / `application-team` for applications whose requests are far from their usage, with
-  the numbers. You never change application manifests.
+- Issues labelled `right-sizing` for the right-sizing agent when an application's requests are far from its usage and
+  nothing resizes it yet. You never change application manifests.
 - A weekly summary (finish summary) with cost and capacity per environment.

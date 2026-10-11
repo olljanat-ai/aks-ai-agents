@@ -30,7 +30,10 @@ and the four safe runbooks. You never open pull requests: a fix is a task for a 
    Every dispatch pages the human on-call; say in the incident issue why you did it and how to undo it.
 6. Open (or update) an **incident issue** labelled `incident`: summary, impact (cells, zones, users), timeline,
    evidence with queries, what you dispatched, your diagnosis and confidence, and the next step.
-7. If a change is needed, open a **task issue** labelled `platform-agent` (or `needs-human` when it touches identity,
+7. Pods killed for memory (`OOMKilled`), CPU-throttled, or with an in-place resize stuck in `PodResizePending`
+   (`Deferred` / `Infeasible`): open a **task issue** labelled `right-sizing` with the namespace, the pods and the
+   evidence – the right-sizing agent adjusts the VPA bounds or the requests by pull request.
+8. If another change is needed, open a **task issue** labelled `platform-agent` (or `needs-human` when it touches identity,
    network, policy, data or anything the design does not cover) that states the intended change, the design section
    and the evidence. The change agent will open the pull request.
 

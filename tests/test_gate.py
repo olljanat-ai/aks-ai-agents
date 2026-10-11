@@ -25,7 +25,7 @@ docs/12-zero-downtime-cluster-upgrades.md#update-policy
 ## Rollback
 Revert this pull request.
 """
-MESSAGE = "Upgrade sl-az1 to 1.34.3\n\nAgent: upgrade-agent\nAgent-Run: run-123\n"
+MESSAGE = "Upgrade sl-az1 to 1.36.3\n\nAgent: upgrade-agent\nAgent-Run: run-123\n"
 
 
 def pr(**overrides):
@@ -33,7 +33,7 @@ def pr(**overrides):
         "repository": "org/iac",
         "number": 1,
         "author": "aks-upgrade-agent[bot]",
-        "head_ref": "agent/upgrade-agent/prd-sl-az1-1.34.3",
+        "head_ref": "agent/upgrade-agent/prd-sl-az1-1.36.3",
         "head_sha": "abc",
         "body": BODY,
         "commits": [{"sha": "abc", "message": MESSAGE}],
@@ -53,8 +53,8 @@ def patch_plan(env="prd"):
                 "Microsoft.ContainerService/managedClusters",
                 name=name,
                 env=env,
-                before={"name": name, "kubernetes_version": "1.34.1"},
-                after={"name": name, "kubernetes_version": "1.34.3"},
+                before={"name": name, "kubernetes_version": "1.36.1"},
+                after={"name": name, "kubernetes_version": "1.36.3"},
             )
         ],
     )
@@ -175,8 +175,8 @@ def test_cli_end_to_end(tmp_path, capsys):
                 "name": "sl_az1",
                 "change": {
                     "actions": ["update"],
-                    "before": {"name": "aks-dev-sl-az1", "kubernetes_version": "1.34.1"},
-                    "after": {"name": "aks-dev-sl-az1", "kubernetes_version": "1.34.3"},
+                    "before": {"name": "aks-dev-sl-az1", "kubernetes_version": "1.36.1"},
+                    "after": {"name": "aks-dev-sl-az1", "kubernetes_version": "1.36.3"},
                 },
             }
         ],

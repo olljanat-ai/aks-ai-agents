@@ -39,7 +39,7 @@ the agents behave the same; only the platform mechanisms differ.
 3. Service connections: `aks-agent-dispatcher` (may only start the agents' Container Apps jobs; required template
    check too), `aks-iac-plan-<env>` (read-only plan identity per environment), `aks-version-pipeline`.
 4. Variables used by the template: `AGENTS_RESOURCE_GROUP`, `REVIEWER_ENV`; by the fleet pipeline: `K8S_MINORS`
-   (e.g. `1.33 1.34`), `CRD_SCHEMAS`.
+   (e.g. `1.36 1.37`), `CRD_SCHEMAS`.
 5. Each platform repository: the pull request pipeline above as **build validation** (required, expires on source
    update) and the **status policy** `aks-agents/merge-gate` (required, authorised account = gate identity).
 6. Agent service principals: branch security so each can create and push only `agent/<name>/*`.
