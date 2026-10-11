@@ -1,6 +1,7 @@
 # Risk tier rules of the merge gate (design section 15). The tier of a pull request is the strictest tier of any
-# rule that matches what its plan does. Semantic rules (versions, policy effects, image promotion, limits) are
-# implemented in aks_gate.rules and documented there.
+# rule that matches what its plan does. Semantic rules (versions, policy effects, image promotion, limits,
+# VerticalPodAutoscaler bounds and resource-only workload changes) are implemented in aks_gate.rules and documented
+# there.
 
 defaults:
   resource: medium               # an IaC change no rule below knows
@@ -137,6 +138,7 @@ agents:
   capacity-agent: aks-capacity-agent[bot]
   security-agent: aks-security-agent[bot]
   onboarding-agent: aks-onboarding-agent[bot]
+  rightsizing-agent: aks-rightsizing-agent[bot]
   reviewer-agent: aks-reviewer-agent[bot]
 
 # Azure DevOps: each agent's managed identities (one per environment) are Azure DevOps users; their names, as
@@ -149,6 +151,7 @@ agentsAzureDevOps:
   capacity-agent: id-agent-capacity-agent-*
   security-agent: id-agent-security-agent-*
   onboarding-agent: id-agent-onboarding-agent-*
+  rightsizing-agent: id-agent-rightsizing-agent-*
   reviewer-agent: id-agent-reviewer-agent-*
 
 pullRequest:

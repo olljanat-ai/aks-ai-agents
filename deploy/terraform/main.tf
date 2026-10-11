@@ -5,12 +5,15 @@
 locals {
   agents = [
     "operations-agent", "platform-agent", "upgrade-agent", "release-agent",
-    "capacity-agent", "security-agent", "onboarding-agent", "reviewer-agent",
+    "capacity-agent", "security-agent", "onboarding-agent", "rightsizing-agent", "reviewer-agent",
   ]
 
   # Agents that read the clusters (Azure Kubernetes Service RBAC Reader – does not include Secrets). The security
-  # agent is added for the stateful cluster drift report.
-  cluster_readers = ["operations-agent", "platform-agent", "upgrade-agent", "release-agent", "security-agent"]
+  # agent is added for the stateful cluster drift report, the right-sizing agent for the VPA objects, pod resources
+  # and resize conditions.
+  cluster_readers = [
+    "operations-agent", "platform-agent", "upgrade-agent", "release-agent", "security-agent", "rightsizing-agent",
+  ]
 
   pairs = { for p in setproduct(local.agents, keys(var.environments)) : "${p[0]}-${p[1]}" => {
     agent = p[0]

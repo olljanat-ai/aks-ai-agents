@@ -21,6 +21,7 @@ and the documentation allow-list, through the hub Firewall.
 | Operations, platform, upgrade, release | as all | `Azure Kubernetes Service RBAC Reader` (no Secrets) |
 | Capacity and cost | + `Cost Management Reader` | – |
 | Security and compliance | + `Security Reader`, `Key Vault Reader` on the zone and platform vaults (metadata only) | `Azure Kubernetes Service RBAC Reader` for the stateful cluster drift report |
+| Right-sizing | as all | `Azure Kubernetes Service RBAC Reader` – VPA objects, pod resources and resize conditions (verify that the role covers `autoscaling.k8s.io`; otherwise add a custom role with `verticalpodautoscalers/read`) |
 | Onboarding, reviewer | as all | – |
 
 On GitHub, every identity can also read **its own** GitHub App key (secret-scoped `Key Vault Secrets User` on the agents' vault in
@@ -60,12 +61,12 @@ enforce its own limits (never the last cell in traffic, only the previous tag, n
 
 | Trigger | Starts | How |
 |---|---|---|
-| Schedule | operations (daily health report), security (daily), capacity (weekly) | `cron-*` jobs |
+| Schedule | operations (daily health report), security (daily), right-sizing (daily), capacity (weekly) | `cron-*` jobs |
 | Azure Monitor alert, Flux notification, failed pipeline | operations agent | action group / notification → `az containerapp job start` of `job-operations-agent-<env>` with `AKS_AGENT_TRIGGER_JSON` |
 | Version pipeline output | upgrade agent | the version pipeline starts `job-upgrade-agent-<env>` with its output as trigger |
 | Successful release in an environment | release agent | the release pipeline starts `job-release-agent-<next env>` |
 | Pull request | reviewer agent | required workflow `reviewer-agent.yml` (GitHub) or the reviewer stage of `guardrails/azure-devops/pull-request.yml` (Azure DevOps) |
-| Onboarding request issue, task issue | onboarding / platform agent | issue workflow in the IaC repository starts the job |
+| Onboarding request issue, task issue | onboarding / platform / right-sizing agent (`right-sizing` label) | issue workflow in the IaC or fleet repository starts the job |
 
 Starting a job needs only a dispatcher identity with permission to start the agent jobs; the dispatcher cannot change
 what a job runs except the task and trigger payload, which the agent treats as data.

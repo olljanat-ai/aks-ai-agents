@@ -44,8 +44,8 @@ merged and by whom.
 | [`src/aks_agents/tools/`](src/aks_agents/tools) | Design and guardrails reading; repositories and pull requests; issues, reviews, runbooks; read-only `az`, Resource Graph, Log Analytics, `kubectl`, Flux; documentation sites |
 | [`src/aks_agents/versions.py`](src/aks_agents/versions.py) | Version pipeline: due upgrade steps per the update policy (deterministic, no LLM) |
 | [`src/aks_agents/permissions.py`](src/aks_agents/permissions.py) | Least-privilege roles derived from logged prototyping runs |
-| [`src/aks_gate/`](src/aks_gate) | **Merge gate**: Terraform plan / what-if / rendered manifests → risk tier, violations, approvals, windows – no LLM |
-| [`agents/`](agents) | The eight agent definitions and their instructions |
+| [`src/aks_gate/`](src/aks_gate) | **Merge gate**: Terraform plan / what-if / rendered manifests → risk tier, violations, approvals, windows; VPA bounds and resource-only changes against `rightSizing` – no LLM |
+| [`agents/`](agents) | The nine agent definitions and their instructions |
 | [`guardrails/`](guardrails) | Content of the guardrails repository: `limits.yaml`, `tiers.yaml`, merge gate and reviewer workflows |
 | [`config/platform.yaml`](config/platform.yaml) | Repositories, environments, clusters, model endpoint, documentation allow-list |
 | [`deploy/`](deploy) | Container image entrypoint and Terraform for identities, roles and Container Apps jobs |
@@ -60,6 +60,7 @@ merged and by whom.
 | Upgrade | version pipeline output | version pull requests with a compatibility report; halt + incident on failed health |
 | Release | successful release in the previous environment | promotion pull request dev → acc → prd with release notes and risk summary |
 | Capacity and cost | weekly schedule, quota and budget alerts | pull requests within `limits.yaml`, issues to application teams |
+| Right-sizing | daily schedule, `right-sizing` task issues (OOMKills, throttling, stuck resizes) | pull requests to the VPA bounds and modes and the resource baselines – the VPA resizes pods in place, online |
 | Security and compliance | daily schedule, Defender and Key Vault events | pull requests for platform findings, issues for application teams |
 | Onboarding | onboarding request issue | pull requests creating namespace (tier low), identity (tier high), overlays |
 | Reviewer | every pull request | review and the required `reviewer-agent` check – never an approval |
@@ -116,3 +117,9 @@ only) lets the tools write directly and logs it.
   `agents/reviewer-agent.yaml` once the provider question is answered.
 - **Event dispatch**: alerts and pipelines start the agents' Container Apps jobs with `az containerapp job start`;
   the dispatcher (action group → Logic App / Function) is not part of this repository yet.
+- **Online right-sizing**: in-place pod resize is done by the AKS Vertical Pod Autoscaler add-on (`InPlaceOrRecreate`,
+  AKS 1.34+), not by an agent – an agent with write access to pods would break "Git is the only write path", and an
+  LLM does not belong in a loop that must react in seconds. The right-sizing agent owns the VPA policy by pull
+  request; the gate checks it against `rightSizing` in `limits.yaml`. Pod-level in-place resize (Kubernetes 1.36,
+  beta) has no VPA support yet, so pod-level budgets are set in Git until it has. The cluster IaC must enable the VPA
+  add-on (`--enable-vpa`) – that is an IaC change, not part of this repository.

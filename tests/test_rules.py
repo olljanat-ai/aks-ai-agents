@@ -337,3 +337,66 @@ def test_new_namespace_is_low_but_deletion_high(config):
         run(config, manifests=[manifest("Namespace", Action.DELETE, before={}, namespace="", name="extfi-shop")])[0]
         == Tier.HIGH
     )
+
+
+def vpa(mode="InPlaceOrRecreate", values="RequestsOnly", cpu="2", memory="4Gi", resources=None):
+    policy = {"containerName": "*", "controlledValues": values, "maxAllowed": {"cpu": cpu, "memory": memory}}
+    if resources:
+        policy["controlledResources"] = resources
+    return {
+        "apiVersion": "autoscaling.k8s.io/v1",
+        "kind": "VerticalPodAutoscaler",
+        "spec": {
+            "targetRef": {"apiVersion": "apps/v1", "kind": "Deployment", "name": "api"},
+            "updatePolicy": {"updateMode": mode},
+            "resourcePolicy": {"containerPolicies": [policy]},
+        },
+    }
+
+
+def test_vpa_in_place_within_limits_is_low(config):
+    change = manifest("VerticalPodAutoscaler", before=vpa(mode="Off"), after=vpa(), env="prd")
+    assert run(config, manifests=[change], agent="rightsizing-agent")[:2] == (Tier.LOW, [])
+    # YAML 1.1 reads an unquoted Off as false
+    assert run(config, manifests=[manifest("VerticalPodAutoscaler", Action.CREATE, after=vpa(mode=False))])[0] == (
+        Tier.LOW
+    )
+
+
+def test_vpa_bounds_modes_and_values(config):
+    def tier(after, cluster="sl-az1"):
+        return run(config, manifests=[manifest("VerticalPodAutoscaler", after=after, cluster=cluster)])[:2]
+
+    assert tier(vpa(cpu="8")) == (Tier.MEDIUM, [])  # over the soft limit
+    assert tier(vpa(memory="128Gi"))[1] == ["right-sizing-max"]  # over the hard limit
+    assert tier(vpa(mode="Recreate")) == (Tier.MEDIUM, [])
+    assert tier(vpa(values="RequestsAndLimits")) == (Tier.MEDIUM, [])
+    unbounded = vpa()
+    del unbounded["spec"]["resourcePolicy"]["containerPolicies"][0]["maxAllowed"]["memory"]
+    assert tier(unbounded) == (Tier.MEDIUM, [])
+    assert tier(vpa(resources=["cpu"])) == (Tier.LOW, [])  # memory left to the HPA: no memory bound needed
+    # Stateful cluster: recommendations only.
+    assert tier(vpa(mode="Off"), cluster="sf") == (Tier.LOW, [])
+    assert tier(vpa(), cluster="sf")[1] == ["right-sizing-mode"]
+
+
+def workload(cpu="500m", memory="512Mi", pod=None, image="a@sha256:1"):
+    spec = {"containers": [{"name": "api", "image": image, "resources": {"requests": {"cpu": cpu, "memory": memory}}}]}
+    if pod:
+        spec["resources"] = {"limits": pod}
+    return {"apiVersion": "apps/v1", "kind": "Deployment", "spec": {"replicas": 2, "template": {"spec": spec}}}
+
+
+def test_resource_only_change(config):
+    def tier(before, after, cluster="sl-az1"):
+        change = manifest("Deployment", before=before, after=after, cluster=cluster)
+        return run(config, manifests=[change], agent="rightsizing-agent")[:2]
+
+    assert tier(workload(), workload(cpu="250m", memory="768Mi")) == (Tier.LOW, [])
+    assert tier(workload(), workload(cpu="2")) == (Tier.MEDIUM, [])  # ×4 step
+    assert tier(workload(cpu="10"), workload(cpu="17"))[1] == ["right-sizing-max"]
+    assert tier(workload(pod={"cpu": "2"}), workload(pod={"cpu": "3"})) == (Tier.LOW, [])  # pod-level resources
+    assert tier(workload(), workload(pod={"cpu": "2"})) == (Tier.MEDIUM, [])  # adds a pod-level limit
+    assert tier(workload(), workload(cpu="250m"), cluster="sf") == (Tier.MEDIUM, [])
+    # Resources together with anything else: not a right-sizing change.
+    assert tier(workload(), workload(cpu="250m", image="a@sha256:2")) == (Tier.MEDIUM, [])

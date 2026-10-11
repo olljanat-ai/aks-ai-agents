@@ -1,5 +1,5 @@
 name: capacity-agent
-description: NAP limits, spot share, arch fit, node pool sizes, quota headroom, idle resources, right-sizing
+description: NAP limits, spot share, arch fit, node pool sizes, quota headroom, idle resources, cost
 instructions: prompts/capacity-agent.md
 triggers: [schedule-weekly, quota-alert, budget-alert]
 model: { effort: high, maxTurns: 80 }

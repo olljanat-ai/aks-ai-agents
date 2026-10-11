@@ -13,7 +13,7 @@ tools:
   - flux_status
   - repo_read: { repositories: [iac, fleet] }
   - search_issues: { repositories: [iac, fleet] }
-  - create_issue: { repositories: [iac, fleet], labels: [incident, task, health-report, drift, platform-agent, needs-human] }
+  - create_issue: { repositories: [iac, fleet], labels: [incident, task, health-report, drift, platform-agent, right-sizing, needs-human] }
   - comment: { repositories: [iac, fleet] }
   - pull_request_read: { repositories: [iac, fleet] }
   - dispatch_runbook: { runbooks: [halt-release, drain-cell, rollback-cell, suspend-kustomization] }

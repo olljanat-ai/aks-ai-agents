@@ -14,7 +14,7 @@ def writes(name):
     return {g.name for g in DEFS[name].tools if REGISTRY[g.name].writes}
 
 
-def test_all_eight_agents_valid():
+def test_all_nine_agents_valid():
     assert set(DEFS) == {
         "operations-agent",
         "platform-agent",
@@ -23,6 +23,7 @@ def test_all_eight_agents_valid():
         "capacity-agent",
         "security-agent",
         "onboarding-agent",
+        "rightsizing-agent",
         "reviewer-agent",
     }
     assert validate(DEFS, PLATFORM) == []
@@ -39,6 +40,11 @@ def test_roles_follow_the_design():
     }
     # Reviewer: reviews only.
     assert writes("reviewer-agent") == {"publish_review"}
+    # Right-sizing agent writes only the VPA and resources files of the stateless overlays – never pods.
+    assert DEFS["rightsizing-agent"].grant("repo_write").options == {
+        "paths": {"fleet": ["apps/*/stateless/*/vpa.yaml", "apps/*/stateless/*/resources.yaml"]}
+    }
+    assert DEFS["rightsizing-agent"].grant("create_pull_request").options == {"repositories": ["fleet"]}
     # Upgrade agent writes only the version files.
     assert DEFS["upgrade-agent"].grant("repo_write").options == {
         "paths": {"iac": ["environments/*/versions.auto.tfvars"]}
