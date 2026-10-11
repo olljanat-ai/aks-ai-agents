@@ -1,6 +1,7 @@
 # aks-ai-agents
 
-Implementation of the AI agents that run day 2 operations of the AKS platform described in
+Implementation of the AI agents that run day 2 operations of [OneK8s](https://onek8s.github.io/) – one
+Kubernetes platform for every cloud, implemented first on AKS – described in
 [onek8s.github.io](https://github.com/onek8s/onek8s.github.io) –
 [section 15, AI-driven day 2 operations](https://github.com/onek8s/onek8s.github.io/blob/main/docs/15-ai-driven-day-2-operations.md),
 plus the agent parts of
