@@ -1,12 +1,12 @@
 # aks-ai-agents
 
 Implementation of the AI agents that run day 2 operations of the AKS platform described in
-[aks-design](https://github.com/olljanat-ai/aks-design) –
-[section 15, AI-driven day 2 operations](https://github.com/olljanat-ai/aks-design/blob/main/docs/15-ai-driven-day-2-operations.md),
+[onek8s.github.io](https://github.com/onek8s/onek8s.github.io) –
+[section 15, AI-driven day 2 operations](https://github.com/onek8s/onek8s.github.io/blob/main/docs/15-ai-driven-day-2-operations.md),
 plus the agent parts of
-[section 17, implementation project](https://github.com/olljanat-ai/aks-design/blob/main/docs/17-implementation-project-and-acceptance-testing.md)
+[section 17, implementation project](https://github.com/onek8s/onek8s.github.io/blob/main/docs/17-implementation-project-and-acceptance-testing.md)
 and the version pipeline of
-[section 12](https://github.com/olljanat-ai/aks-design/blob/main/docs/12-zero-downtime-cluster-upgrades.md#update-policy).
+[section 12](https://github.com/onek8s/onek8s.github.io/blob/main/docs/12-zero-downtime-cluster-upgrades.md#update-policy).
 
 > Status: **work in progress**, built for the build tenant (phase 2 of section 17). Not yet run against a real
 > environment.
@@ -117,9 +117,11 @@ only) lets the tools write directly and logs it.
   `agents/reviewer-agent.yaml` once the provider question is answered.
 - **Event dispatch**: alerts and pipelines start the agents' Container Apps jobs with `az containerapp job start`;
   the dispatcher (action group → Logic App / Function) is not part of this repository yet.
-- **Online right-sizing**: in-place pod resize is done by the AKS Vertical Pod Autoscaler add-on (`InPlaceOrRecreate`,
-  AKS 1.34+), not by an agent – an agent with write access to pods would break "Git is the only write path", and an
-  LLM does not belong in a loop that must react in seconds. The right-sizing agent owns the VPA policy by pull
-  request; the gate checks it against `rightSizing` in `limits.yaml`. Pod-level in-place resize (Kubernetes 1.36,
-  beta) has no VPA support yet, so pod-level budgets are set in Git until it has. The cluster IaC must enable the VPA
-  add-on (`--enable-vpa`) – that is an IaC change, not part of this repository.
+- **Online right-sizing, on by default**: in-place pod resize is done by the AKS Vertical Pod Autoscaler add-on
+  (`InPlaceOrRecreate`), not by an agent – an agent with write access to pods would break "Git is the only write
+  path", and an LLM does not belong in a loop that must react in seconds. Every application gets a VPA in
+  `InPlaceOrRecreate` at onboarding; teams opt out with the pod label `platform/rightsizing: off`. The right-sizing
+  agent owns the VPA policy by pull request; the gate checks it against `rightSizing` in `limits.yaml`. Every cluster
+  starts on Kubernetes 1.36 (the platform floor, `kubernetes.allowedMinors`), so container and pod-level in-place
+  resize are available everywhere; pod-level budgets are set in Git until the VPA supports them. The cluster IaC,
+  still to be written, must enable the VPA add-on (`--enable-vpa`).

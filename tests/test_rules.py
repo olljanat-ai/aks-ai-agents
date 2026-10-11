@@ -44,32 +44,32 @@ def cluster(before_version, after_version, name="aks-prd-sl-az1", env="prd", ext
 
 
 def test_patch_upgrade_is_low(config):
-    tier, violations, _ = run(config, [cluster("1.34.1", "1.34.3")])
+    tier, violations, _ = run(config, [cluster("1.36.1", "1.36.3")])
     assert (tier, violations) == (Tier.LOW, [])
 
 
 def test_minor_upgrade_is_medium(config):
-    tier, violations, _ = run(config, [cluster("1.33.5", "1.34.3")])
+    tier, violations, _ = run(config, [cluster("1.35.5", "1.36.3")])
     assert (tier, violations) == (Tier.MEDIUM, [])
 
 
 def test_disallowed_minor_is_rejected(config):
-    _, violations, _ = run(config, [cluster("1.34.3", "1.35.0")])
+    _, violations, _ = run(config, [cluster("1.36.3", "1.37.0")])
     assert violations == ["kubernetes-allowed-minors"]
 
 
 def test_stateful_version_change_is_high(config):
-    tier, _, _ = run(config, [cluster("1.34.1", "1.34.3", name="aks-prd-sf")])
+    tier, _, _ = run(config, [cluster("1.36.1", "1.36.3", name="aks-prd-sf")])
     assert tier == Tier.HIGH
 
 
 def test_version_plus_other_change_gets_default(config):
-    tier, _, _ = run(config, [cluster("1.34.1", "1.34.3", extra_after={"sku_tier": "Premium"})])
+    tier, _, _ = run(config, [cluster("1.36.1", "1.36.3", extra_after={"sku_tier": "Premium"})])
     assert tier == Tier.MEDIUM
 
 
 def test_two_prd_cells_rejected(config):
-    _, violations, _ = run(config, [cluster("1.34.1", "1.34.3"), cluster("1.33.1", "1.33.3", name="aks-prd-sl-az2")])
+    _, violations, _ = run(config, [cluster("1.36.1", "1.36.3"), cluster("1.36.2", "1.36.4", name="aks-prd-sl-az2")])
     assert violations == ["cells-per-pull-request"]
 
 
@@ -77,8 +77,8 @@ def test_two_dev_cells_allowed(config):
     _, violations, _ = run(
         config,
         [
-            cluster("1.34.1", "1.34.3", name="aks-dev-sl-az1", env="dev"),
-            cluster("1.33.1", "1.33.3", name="aks-dev-sl-az2", env="dev"),
+            cluster("1.36.1", "1.36.3", name="aks-dev-sl-az1", env="dev"),
+            cluster("1.36.2", "1.36.4", name="aks-dev-sl-az2", env="dev"),
         ],
     )
     assert violations == []
@@ -308,17 +308,17 @@ def test_bicep_cluster_minor_upgrade(config):
     rid = "/subscriptions/s/resourceGroups/rg/providers/Microsoft.ContainerService/managedClusters/aks-acc-sl-az2"
     before = {
         "properties": {
-            "kubernetesVersion": "1.33.4",
+            "kubernetesVersion": "1.35.4",
             "agentPoolProfiles": [
-                {"name": "system", "vmSize": "Standard_D4ads_v6", "count": 3, "orchestratorVersion": "1.33.4"}
+                {"name": "system", "vmSize": "Standard_D4ads_v6", "count": 3, "orchestratorVersion": "1.35.4"}
             ],
         }
     }
     after = {
         "properties": {
-            "kubernetesVersion": "1.34.2",
+            "kubernetesVersion": "1.36.2",
             "agentPoolProfiles": [
-                {"name": "system", "vmSize": "Standard_D4ads_v6", "count": 3, "orchestratorVersion": "1.34.2"}
+                {"name": "system", "vmSize": "Standard_D4ads_v6", "count": 3, "orchestratorVersion": "1.36.2"}
             ],
         }
     }

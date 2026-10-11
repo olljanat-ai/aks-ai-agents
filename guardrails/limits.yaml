@@ -49,8 +49,9 @@ rightSizing:                     # per environment overrides under environments.
   maxStepFactor: 2
 
 kubernetes:
-  # Filled by the upgrade agent's pull request, approved per tier.
-  allowedMinors: { stateless: ["1.33", "1.34"], stateful: ["1.34"] }
+  # 1.36 is the platform floor (every cluster starts on it); newer minors are added by the upgrade agent's pull
+  # request, approved per tier.
+  allowedMinors: { stateless: ["1.36"], stateful: ["1.36"] }
   statefulClusterPattern: "^aks-[a-z]+-sf$"
   cellPattern: "(sl-az[0-9]+|sf)"
 

@@ -24,8 +24,10 @@ Per application and environment, in the stateless overlay `apps/<app>/stateless/
 `kustomization.yaml`; if the file is not listed yet, the pull request adds it – the overlay is platform-maintained for
 these two files):
 
-- `vpa.yaml` – the `VerticalPodAutoscaler` (`autoscaling.k8s.io/v1`) for the application's Deployment. The onboarding
-  agent creates it with `updateMode: "Off"` (recommendations only).
+- `vpa.yaml` – the `VerticalPodAutoscaler` (`autoscaling.k8s.io/v1`) for the application's Deployment. Right-sizing is
+  **on by default**: the onboarding agent creates it with `updateMode: InPlaceOrRecreate` and safe starting bounds
+  from the declared requests (memory `minAllowed` = the declared request, CPU `minAllowed` = a quarter of it,
+  `maxAllowed` = twice the declared values).
 - `resources.yaml` – a strategic-merge patch with the container `resources` (and pod-level `spec.resources`, see
   below) the pods start from.
 
@@ -43,20 +45,23 @@ For each cell (`kubectl` per cluster) and each application namespace:
    `KubePodInventory` restarts and OOMKilled reasons, `KubeEvents` warnings) – 14 days, peak hour included. Note every
    query; it is the evidence.
 2. **Classify** each application:
-   - `recommend` – VPA `Off`: compare the recommendation with the requests in Git.
-   - `auto` – the pod template has the label `platform/rightsizing: auto` (the application team's opt-in): the VPA
-     may resize in place.
-   - **not eligible for in-place actuation**: the HPA scales on CPU *and* memory utilisation (then VPA stays `Off`;
-     only the baseline moves), or the application team said its runtime fixes its memory at start (JVM `-Xmx`,
-     .NET `GCHeapHardLimit`, Node `--max-old-space-size`) and its memory `resizePolicy` is not `RestartContainer`.
+   - `auto` (the default) – the VPA resizes the pods in place.
+   - `off` – the pod template has the label `platform/rightsizing: off` (the application team opted out), or the HPA
+     scales on CPU *and* memory utilisation: the VPA stays `Off`; compare its recommendation with the requests in Git
+     and move only the baseline.
 3. **Act**, smallest change first, one environment per pull request, dev → acc → prd with at least 3 days of evidence
    in the previous environment:
-   - **Opted-in application with VPA `Off`** → switch to `InPlaceOrRecreate`.
+   - **VPA mode follows the class**: `InPlaceOrRecreate` for `auto`, `Off` for `off`. A team that removes its opt-out
+     label gets `InPlaceOrRecreate` back. An application whose resizes misbehave (oscillation, restarts, SLO
+     breaches that follow resizes) → `Off` and an `application-team` issue with the evidence; that is always allowed.
+   - **Starting bounds → data bounds**: after 14 days of usage replace the onboarding bounds with the ones below.
    - **Bounds** (`resourcePolicy.containerPolicies`, `controlledValues: RequestsOnly` always):
      `maxAllowed` = 1.5 × the 14-day peak, at least the current request, never above `rightSizing.maxAllowed.*.soft`
      unless the evidence demands it (then the gate makes it medium – say why); `minAllowed` memory ≥ the 14-day peak
      working set of one pod (shrinking memory in place below what a process holds only gets it OOM-killed), CPU ≥
-     the median use.
+     the median use. Memory `maxAllowed` never above the container's memory limit – only requests move
+     (`controlledValues: RequestsOnly`), limits stay in Git, so runtimes that size their heap from the limit at start
+     (JVM, .NET, Node) are not affected by a resize.
    - **HPA interplay**: an HPA on CPU utilisation computes against the request, so a VPA that also moves CPU makes the
      two fight. `controlledResources` then lists only `memory`; an HPA on memory → only `cpu`; KEDA on external
      metrics (queue length, request rate) → both.
@@ -71,7 +76,8 @@ For each cell (`kubectl` per cluster) and each application namespace:
      carrying the whole environment. If it does not, open an issue labelled `capacity` for the capacity agent.
    - **Node fit**: `maxAllowed` must fit the largest allowed VM size of the zone (`limits.yaml` `allowedVmSizes`) after
      DaemonSets; otherwise resizes end `Infeasible`.
-5. **Resize health** of `auto` applications:
+5. **Resize health** of `auto` applications (in-place resize needs Kubernetes 1.36, the platform floor – every cell has
+   it):
    - `Infeasible` → the bound is larger than any node can give; lower `maxAllowed`.
    - `Deferred` for long → the node is full. NAP does not add nodes for a deferred resize; the VPA updater falls back to
      evicting the pod (PDB respected) and the recreated pod is what triggers NAP. Many deferred resizes in one zone →
@@ -79,16 +85,17 @@ For each cell (`kubectl` per cluster) and each application namespace:
    - OOMKills or throttling despite VPA → `maxAllowed` too low, or memory not in `controlledResources`; fix the bound
      or, if the application leaks, an `application-team` issue with the numbers – a bigger bound does not fix a leak.
    - Restarts caused by resizes (container `restartCount` rising with resize events) → the `resizePolicy` is
-     `RestartContainer` for that resource; tell the application team.
+     `RestartContainer` for that resource (the platform default is `NotRequired`); tell the application team.
 
-## Pod-level resources (Kubernetes 1.34+, in-place resize 1.36+)
+## Pod-level resources
 
 For pods with several containers (application + sidecar) a pod-level budget (`spec.resources`) lets containers without
-their own limits share one pool, and since Kubernetes 1.36 (feature `InPlacePodLevelResourcesVerticalScaling`, beta,
-on by default) it can be resized in place too. VPA does not recommend pod-level values yet, so:
+their own limits share one pool, and on Kubernetes 1.36 – every cell's minimum – it can be resized in place too
+(feature `InPlacePodLevelResourcesVerticalScaling`, beta, on by default). VPA does not recommend pod-level values yet,
+so:
 
-- propose it only when **every** cell of the environment runs 1.36 or later (the slow speed lags a minor behind) and
-  the application team agreed in an issue, because it changes how their containers share CPU and memory;
+- propose it only when the application team agreed in an issue, because it changes how their containers share CPU and
+  memory;
 - compute it from the sum of the containers' peaks; write it in `resources.yaml` like any other baseline;
 - never combine it with a VPA that moves the same resource of the same containers.
 
@@ -98,7 +105,7 @@ on by default) it can be resized in place too. VPA does not recommend pod-level 
   zone) and one environment. Evidence: usage percentiles, the VPA recommendation, restarts / OOMKills, quota and N+1
   headroom. Rollback: revert the pull request – pods keep their current size until the next resize or restart, then
   follow the reverted bounds.
-- Issues labelled `application-team` (runtime memory settings, leaks, quota, opt-in suggestions with the numbers),
+- Issues labelled `application-team` (leaks, quota, misbehaving resizes, opt-outs that cost a lot – with the numbers),
   `capacity` (NAP limits, deferred resizes) and `needs-human` (anything the design does not cover).
 - A finish summary per environment: applications per class, requests vs. usage before and after, CPU and memory
   given back, open resize problems.
@@ -106,7 +113,7 @@ on by default) it can be resized in place too. VPA does not recommend pod-level 
 ## Never
 
 - Resize, patch, evict or restart pods, or ask anyone to do it by hand; in-place resize is the VPA's job.
-- Switch an application to `InPlaceOrRecreate` without its `platform/rightsizing: auto` label.
+- Switch an application labelled `platform/rightsizing: off` to `InPlaceOrRecreate`.
 - Actuate anything in the stateful cluster: its VPA objects stay `Off`, its sizes are planned changes (issue).
 - Use `controlledValues: RequestsAndLimits`, a VPA without `maxAllowed`, or a mode other than `Off` / `Initial` /
   `InPlaceOrRecreate`.

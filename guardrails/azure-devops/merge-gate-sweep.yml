@@ -15,7 +15,7 @@ parameters:
     default:
       aks-iac: true
       aks-fleet: true
-      aks-design: false
+      onek8s.github.io: false
 
 variables:
   - group: merge-gate

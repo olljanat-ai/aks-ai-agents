@@ -26,7 +26,7 @@ jobs:
           git worktree add "$RUNNER_TEMP/base" "origin/${{ github.base_ref }}"
           bash pipelines/scripts/render-fleet.sh "$RUNNER_TEMP/base" "$out/base"
           bash pipelines/scripts/render-fleet.sh . "$out/head"
-          for minor in ${{ vars.K8S_MINORS || '1.33 1.34' }}; do
+          for minor in ${{ vars.K8S_MINORS || '1.36' }}; do
             kubeconform -strict -summary -kubernetes-version "$minor.0" -schema-location default \
               -schema-location "${{ vars.CRD_SCHEMAS }}" "$out/head"
           done

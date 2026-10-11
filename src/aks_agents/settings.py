@@ -84,7 +84,7 @@ class Settings:
             platform_file=path("AKS_AGENT_PLATFORM", "config/platform.yaml"),
             definitions_dir=path("AKS_AGENT_DEFINITIONS", "agents"),
             guardrails_dir=path("AKS_AGENT_GUARDRAILS", "guardrails"),
-            design_dir=path("AKS_AGENT_DESIGN", "../aks-design"),
+            design_dir=path("AKS_AGENT_DESIGN", "../onek8s.github.io"),
             workspace=path("AKS_AGENT_WORKSPACE", ".workspace"),
             runs_dir=path("AKS_AGENT_RUNS", "runs"),
             dry_run=_env("AKS_AGENT_DRY_RUN", "") in ("1", "true", "yes"),

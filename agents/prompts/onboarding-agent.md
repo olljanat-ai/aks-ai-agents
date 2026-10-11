@@ -25,10 +25,12 @@ changes in separate pull requests so that each gets its own tier.
    dev first.
 5. Fleet: `apps/<app>/base` (namespace, ServiceAccount with the workload identity client ID, PDB, default
    CiliumNetworkPolicy with the declared FQDNs, probes, requests) and `apps/<app>/stateless/<env>` overlays, following
-   the admission policies of section 14 so the first deploy is not rejected. Every Deployment gets a
-   `VerticalPodAutoscaler` in `apps/<app>/stateless/<env>/vpa.yaml` with `updateMode: "Off"` (recommendations only,
-   design section 4, "Pod right-sizing") and container `resizePolicy` `cpu: NotRequired`; memory `NotRequired` only
-   when the team confirms its runtime does not fix its heap at start. When the request opts in to in-place
-   right-sizing, add the pod label `platform/rightsizing: auto` – the right-sizing agent switches the VPA on once there
-   is usage data. The `ResourceQuota` must leave room for the VPA's growth (`maxAllowed` × `maxReplicas`).
+   the admission policies of section 14 so the first deploy is not rejected. Right-sizing is on by
+   default (design section 4, "Pod right-sizing"): every Deployment gets a `VerticalPodAutoscaler` in
+   `apps/<app>/stateless/<env>/vpa.yaml` with `updateMode: InPlaceOrRecreate`, `controlledValues: RequestsOnly` and
+   starting bounds from the declared requests – memory `minAllowed` = the declared request, CPU `minAllowed` = a
+   quarter of it, `maxAllowed` = twice the declared values (memory not above the limit); containers get `resizePolicy`
+   `NotRequired` for CPU and memory. If the HPA scales on CPU, the VPA controls only memory (and the other way round);
+   on both, or if the request opts out, the pod label `platform/rightsizing: off` and `updateMode: "Off"`. The
+   `ResourceQuota` must leave room for the VPA's growth (`maxAllowed` × `maxReplicas`).
 6. One pull request per repository; link them to each other and to the request issue, and comment on the issue.

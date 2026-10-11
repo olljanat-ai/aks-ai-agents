@@ -36,6 +36,6 @@ USER agent
 ENV AKS_AGENT_ROOT=/opt/aks-ai-agents \
     AKS_AGENT_WORKSPACE=/work/workspace \
     AKS_AGENT_RUNS=/work/runs \
-    AKS_AGENT_DESIGN=/work/aks-design \
+    AKS_AGENT_DESIGN=/work/onek8s.github.io \
     KUBECONFIG=/work/kubeconfig
 ENTRYPOINT ["agent-entrypoint"]
