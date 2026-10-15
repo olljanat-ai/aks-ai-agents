@@ -46,7 +46,7 @@ merged and by whom.
 | [`src/aks_agents/versions.py`](src/aks_agents/versions.py) | Version pipeline: due upgrade steps per the update policy (deterministic, no LLM) |
 | [`src/aks_agents/permissions.py`](src/aks_agents/permissions.py) | Least-privilege roles derived from logged prototyping runs |
 | [`src/aks_gate/`](src/aks_gate) | **Merge gate**: Terraform plan / what-if / rendered manifests → risk tier, violations, approvals, windows; VPA bounds and resource-only changes against `rightSizing` – no LLM |
-| [`agents/`](agents) | The nine agent definitions and their instructions |
+| [`agents/`](agents) | The ten agent definitions and their instructions |
 | [`guardrails/`](guardrails) | Content of the guardrails repository: `limits.yaml`, `tiers.yaml`, merge gate and reviewer workflows |
 | [`config/platform.yaml`](config/platform.yaml) | Repositories, environments, clusters, model endpoint, documentation allow-list |
 | [`deploy/`](deploy) | Container image entrypoint and Terraform for identities, roles and Container Apps jobs |
@@ -65,6 +65,7 @@ merged and by whom.
 | Security and compliance | daily schedule, Defender and Key Vault events | pull requests for platform findings, issues for application teams |
 | Onboarding | onboarding request issue | pull requests creating namespace (tier low), identity (tier high), overlays |
 | Reviewer | every pull request | review and the required `reviewer-agent` check – never an approval |
+| Egress (D59) | hourly schedule, firewall deny alerts | pull requests to the landing zone's per-application firewall rules (`firewall-applications/<env>-<exposure>/<namespace>.yaml`), from the flows the hub firewall denied and the pods behind their addresses |
 
 What keeps them inside their role, independently of the model:
 
@@ -107,6 +108,15 @@ Runs need a Claude endpoint: the Claude API (`ANTHROPIC_API_KEY`, server-side re
 Foundry (`model.provider: foundry` in `platform.yaml`, Entra ID token of the run's managed identity); the model
 provider and region are still an open question of the design. `AKS_AGENT_MODE=prototype` (build tenant, phases 1–2
 only) lets the tools write directly and logs it.
+
+## The egress agent in the lab (D59)
+
+`aks-terraform`'s **Egress agent** workflow runs [`egress-agent`](agents/egress-agent.yaml) against the build tenant
+with [`config/onek8s-dev.yaml`](config/onek8s-dev.yaml): Claude Sonnet 5.5 on Microsoft Foundry (Entra ID, the dev
+deployment identity), `kubectl` read verbs on the firewall-egress cell through the labfw VPN, and the denied flows
+exported from labfw's log by a separate job before the agent starts (`firewall.log: file`; with Azure Firewall the
+tool reads `AZFWApplicationRule` / `AZFWNetworkRule` in Log Analytics instead). Its only write is one pull request
+per application namespace to `onek8s/azure-landing-zone`.
 
 ## Assumptions and open points for the design
 

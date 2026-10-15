@@ -1,0 +1,49 @@
+# The OneK8s build tenant (the lab): the onek8s organisation's repositories and the dev environment as it runs since
+# 2026-10-15 (germanywestcentral, internal exposure, behind labfw in the hub). Used by aks-terraform's agent
+# workflows (AKS_AGENT_PLATFORM=config/onek8s-dev.yaml); config/platform.yaml stays the production example.
+
+git:
+  platform: github
+  defaultBranch: main
+  repositories:
+    iac: onek8s/aks-terraform
+    fleet: onek8s/aks-fluxcd-platform
+    apps: onek8s/aks-fluxcd-example
+    firewall: onek8s/azure-landing-zone
+    design: onek8s/onek8s.github.io
+    runbooks: onek8s/aks-terraform
+    guardrails: onek8s/aks-ai-agents
+
+model:
+  provider: foundry
+  name: claude-sonnet-5-5          # the deployment of aks-terraform shared/ ai_foundry
+  foundryResource: ais-onek8s-dev-agents
+  fallbacks: []
+
+audit:
+  runsDir: runs
+  storageAccount: ""
+  container: agent-runs
+
+documentationSites:
+  - learn.microsoft.com
+  - github.com
+  - raw.githubusercontent.com
+
+environments:
+  dev:
+    subscription: sub-aks-dev
+    region: germanywestcentral
+    resourceGroup: rg-aks-dev
+    clusters: [aks-dev-int-stateless-az3, aks-dev-int-stateless-az2]
+    # The hub firewall (design D53, D59): labfw keeps its log on its VM; the agent workflow exports the denied flows
+    # to a file first (firewall.log file). Azure Firewall: log_analytics, from logAnalyticsWorkspaceId.
+    firewall:
+      log: file
+      spoke: dev-int                # firewall-applications/<spoke>/ of azure-landing-zone
+      sourcePrefixes: [100.64.0.0/10, 172.22.0.0/16]
+      cells:
+        aks-dev-int-stateless-az3: [100.64.0.0/16]
+        aks-dev-int-stateless-az2: [172.22.16.0/20]
+
+platformNamespaces: [kube-system, flux-system, gatekeeper-system, external-dns, external-secrets, infra-observability]
