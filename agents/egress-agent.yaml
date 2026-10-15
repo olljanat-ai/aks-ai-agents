@@ -7,6 +7,7 @@ tools:
   - design
   - firewall_denied_flows
   - pods_by_ip
+  - application_source
   - kubectl
   - repo_read: { repositories: [firewall, fleet, apps] }
   # Only the per-application egress files of the landing zone's firewall policies: one file per application

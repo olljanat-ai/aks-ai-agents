@@ -8,6 +8,7 @@ enforced here rather than by the model.
 from __future__ import annotations
 
 import datetime as dt
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -209,6 +210,20 @@ class AgentRunner:
         return result
 
     def _call_tool(self, block: Any) -> dict[str, Any]:
+        # A model that repeats the same call learns nothing new: after the second identical call it is told so,
+        # instead of the call running again (weaker models loop on an empty result otherwise).
+        key = f"{block.name}:{json.dumps(block.input, sort_keys=True, default=str)}"
+        seen = self.ctx.state.setdefault("call_counts", {})
+        seen[key] = seen.get(key, 0) + 1
+        if seen[key] > 2:
+            self.recorder.event("tool_call_repeated", id=block.id, tool=block.name, input=block.input, count=seen[key])
+            return {
+                "type": "tool_result",
+                "tool_use_id": block.id,
+                "content": f"You already called {block.name} with exactly this input {seen[key] - 1} times; the "
+                "result will not change. Use what you have, try a different input, or call finish.",
+                "is_error": True,
+            }
         tool = self.tools.get(block.name)
         self.recorder.event(
             "tool_call", id=block.id, tool=block.name, input=block.input, writes=bool(tool and tool.writes)
