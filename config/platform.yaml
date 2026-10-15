@@ -19,7 +19,7 @@ git:
     workItemType: Issue          # Basic process; e.g. Task or Bug with Agile / Scrum / CMMI
 
 model:
-  provider: anthropic            # anthropic | foundry
+  provider: anthropic            # anthropic | foundry | azure-openai (an OpenAI-format model on Foundry)
   name: claude-opus-5-5          # on Foundry: the deployment name
   foundryResource: ""            # Foundry resource name (provider foundry)
   fallbacks: default             # server-side refusal fallbacks (anthropic) or a model list (foundry)
