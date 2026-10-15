@@ -61,6 +61,9 @@ def test_only_application_pods_and_only_what_is_not_proposed_yet():
     flows = egress.attribute([row(), row(ip="100.64.0.100"), row(ip="100.64.0.9")], mapping, state, AT)
     assert [f["SourceIp"] for f in flows] == ["100.64.32.26"]
     assert state.addresses["100.64.32.26"]["namespace"] == "int-se-example"
+    # Nodes and platform pods are remembered as nothing to propose for: dropped before cluster access next time
+    assert state.addresses["100.64.0.100"]["ignore"] and state.addresses["100.64.0.9"]["ignore"]
+    assert egress.drop_known([row(ip="100.64.0.100")], state, NETS) == []
     in_main = "zone: int-se\negress:\n  - fqdn: other.example.org\n"
     assert egress.to_propose(flows, state, lambda ns: in_main, lambda: {}) == {"int-se-example": flows}
     assert egress.to_propose(flows, state, lambda ns: "egress:\n  - fqdn: api.open-meteo.com\n", lambda: {}) == {}
