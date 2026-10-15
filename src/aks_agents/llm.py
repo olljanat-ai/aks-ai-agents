@@ -1,4 +1,5 @@
-"""Claude client for the agents: the Claude API (first party) or Microsoft Foundry (Azure, private endpoint).
+"""Model client for the agents: Claude through the Claude API (first party) or Microsoft Foundry, or an OpenAI-format
+model on Foundry (``azure-openai``, openai_compat.py) where no Claude deployment is available.
 
 The model provider and region are an open question of the design (data residency of diagnostics sent to the
 model); both providers expose the same Messages API, so only the client construction differs.
@@ -60,6 +61,10 @@ class ModelClient:
         self._fallback_state = anthropic.BetaFallbackState()
         if client is not None:
             self.client = client
+        elif self.provider == "azure-openai":
+            from .openai_compat import AzureOpenAIClient
+
+            self.client = AzureOpenAIClient(platform.get("model.foundryResource"), azure_token_provider())
         elif self.provider == "foundry":
             middleware = []
             if isinstance(self.fallbacks, list) and self.fallbacks:
@@ -82,6 +87,11 @@ class ModelClient:
         max_tokens: int,
         model: str | None = None,
     ) -> Any:
+        if self.provider == "azure-openai":
+            # OpenAI-format models: no thinking, effort or caching parameters (openai_compat.py)
+            return self.client.create(
+                model=model or self.model, system=system, messages=messages, tools=tools, max_tokens=max_tokens
+            )
         params: dict[str, Any] = {
             "model": model or self.model,
             "max_tokens": max_tokens,

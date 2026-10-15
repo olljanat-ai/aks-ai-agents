@@ -15,8 +15,11 @@ git:
     guardrails: onek8s/aks-ai-agents
 
 model:
-  provider: foundry
-  name: claude-sonnet-5-5          # the deployment of aks-terraform shared/ ai_foundry
+  # gpt-4.1-mini on the agents' Foundry resource (aks-terraform shared/ ai_foundry.openai_deployments): the lab's model
+  # while sub-aks-dev has no Claude quota (2026-10-15, the user's choice - "good enough for the lab"). With Claude:
+  # provider foundry, name claude-sonnet-5-5.
+  provider: azure-openai           # anthropic | foundry | azure-openai
+  name: gpt-4.1-mini               # the deployment name
   foundryResource: ais-onek8s-dev-agents
   fallbacks: []
 
