@@ -171,8 +171,16 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--env", help="environment of this run (default AKS_AGENT_ENV)")
     run.add_argument("--dry-run", action="store_true", help="record pull requests, issues and dispatches only")
     run.set_defaults(func=cmd_run)
+    from .egress_cli import add_parser as add_egress
+
+    add_egress(sub)
     args = parser.parse_args(argv)
-    return args.func(args, Settings.from_env())
+    settings = Settings.from_env()
+    if getattr(args, "env", None):
+        settings.environment = args.env
+    if getattr(args, "dry_run", False):
+        settings.dry_run = True
+    return args.func(args, settings)
 
 
 if __name__ == "__main__":
