@@ -64,8 +64,8 @@ class GitHub:
     def file_for(self, namespace: str) -> str | None:
         return self._raw(f"{APPS}/{self.spoke}/{namespace}.yaml", self.branch)
 
-    def open_pr_files(self) -> dict[str, set]:
-        found: dict[str, set] = {}
+    def open_pr_files(self) -> dict[str, dict]:
+        found: dict[str, dict] = {}
         for pr in (
             self.client.request("GET", f"/repos/{self.repo}/pulls", params={"state": "open", "per_page": 100}) or []
         ):
@@ -74,9 +74,9 @@ class GitHub:
             for f in self.client.request("GET", f"/repos/{self.repo}/pulls/{pr['number']}/files") or []:
                 if f["filename"].startswith(f"{APPS}/{self.spoke}/") and f["filename"].endswith(".yaml"):
                     ns = Path(f["filename"]).stem
-                    found.setdefault(ns, set()).update(
-                        egress.existing_fqdns(self._raw(f["filename"], pr["head"]["sha"]))
-                    )
+                    ref = {"repo": self.repo, "number": pr["number"], "url": pr["html_url"]}
+                    for entry in egress.existing_fqdns(self._raw(f["filename"], pr["head"]["sha"])):
+                        found.setdefault(ns, {})[entry] = ref
         return found
 
 
@@ -128,7 +128,7 @@ def cmd_propose(args: argparse.Namespace, settings: Settings) -> int:
             mapping[m["ip"]] = m
     flows = egress.attribute(rows, mapping, state, at)
     gh = GitHub(platform, fw.get("spoke", ""))
-    proposed = egress.to_propose(flows, state, gh.file_for, gh.open_pr_files)
+    proposed = egress.to_propose(flows, state, gh.file_for, gh.open_pr_files, at)
     count = sum(len(v) for v in proposed.values())
     print(f"flows from application pods: {len(flows)}; to propose: {count} in {len(proposed)} namespaces")
     if not proposed:

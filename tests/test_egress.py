@@ -64,12 +64,12 @@ def test_only_application_pods_and_only_what_is_not_proposed_yet():
     in_main = "zone: int-se\negress:\n  - fqdn: other.example.org\n"
     assert egress.to_propose(flows, state, lambda ns: in_main, lambda: {}) == {"int-se-example": flows}
     assert egress.to_propose(flows, state, lambda ns: "egress:\n  - fqdn: api.open-meteo.com\n", lambda: {}) == {}
-    assert (
-        egress.to_propose(
-            flows, state, lambda ns: None, lambda: {"int-se-example": {("api.open-meteo.com", "https", "443")}}
-        )
-        == {}
-    )
+    pr = {"repo": "onek8s/azure-landing-zone", "number": 66, "url": "u"}
+    covered = {"int-se-example": {("api.open-meteo.com", "https", "443"): pr}}
+    assert egress.to_propose(flows, state, lambda ns: None, lambda: covered, AT) == {}
+    # ...and remembered, so the next run drops the source before any cluster access
+    assert state.proposals[egress.key("int-se-example", "api.open-meteo.com", "https", 443)]["pr"]["number"] == 66
+    assert egress.drop_known([row()], state, NETS) == []
 
 
 def test_proposals_are_recorded_and_follow_their_pull_request():

@@ -185,19 +185,29 @@ def existing_fqdns(file_text: str | None) -> set[tuple[str, str, str]]:
 
 
 def to_propose(
-    flows: list[dict[str, Any]], state: EgressState, file_for, open_pr_files
+    flows: list[dict[str, Any]], state: EgressState, file_for, open_pr_files, at: dt.datetime | None = None
 ) -> dict[str, list[dict[str, Any]]]:
-    """Per namespace, the flows not yet in its file on the default branch, an open pull request or the state."""
+    """Per namespace, the flows not yet in its file on the default branch, an open pull request or the state.
+
+    A flow an open pull request already proposes is recorded as pending with that pull request, so the next runs drop
+    its source before any cluster access."""
     by_namespace: dict[str, list[dict[str, Any]]] = {}
     files: dict[str, set] = {}
-    in_prs = open_pr_files()  # namespace -> set of (fqdn, protocol, port)
+    in_prs = open_pr_files()  # namespace -> {(fqdn, protocol, port): pull request {repo, number, url}}
     for f in flows:
         ns = f["pod"]["namespace"]
         if ns not in files:
             files[ns] = existing_fqdns(file_for(ns))
         proto, port = str(f.get("Protocol", "https")).lower(), str(f.get("DestinationPort", 443))
         entry = (f["Fqdn"].lower(), "https" if proto in ("https", "tls") else proto, port)
-        if entry in files[ns] or entry in in_prs.get(ns, set()):
+        if entry in files[ns]:
+            continue
+        pr = in_prs.get(ns, {}).get(entry)
+        if pr:
+            stamp = _iso(at or now())
+            state.proposals.setdefault(
+                key(ns, *entry), {"status": "pending", "pr": pr, "created": stamp, "updated": stamp}
+            )
             continue
         if state.suppressed(key(ns, *entry)):
             continue
