@@ -8,6 +8,8 @@ git:
   repositories:
     iac: example-org/aks-iac
     fleet: example-org/aks-fleet
+    apps: example-org/aks-apps         # an application team's repository (egress agent: what an app is configured to call)
+    firewall: example-org/aks-landing-zone   # the hub firewall policies (egress agent, D59)
     design: onek8s/onek8s.github.io
     runbooks: example-org/aks-runbooks
     guardrails: example-org/aks-guardrails

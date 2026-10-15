@@ -16,6 +16,7 @@ change them (two approvals).
 | Onboarding | [onboarding-agent.yaml](onboarding-agent.yaml) | Pull requests for new applications (new namespaces are tier low; identities in IaC stay tier high) |
 | Right-sizing | [rightsizing-agent.yaml](rightsizing-agent.yaml) | Pull requests to `apps/*/stateless/*/{vpa,resources}.yaml` – VPA modes and bounds within `rightSizing` of `limits.yaml`; the VPA itself resizes pods in place |
 | Reviewer | [reviewer-agent.yaml](reviewer-agent.yaml) | Reviews and the `reviewer-agent` check – never approvals |
+| Egress (D59) | [egress-agent.yaml](egress-agent.yaml) | Pull requests to the landing zone's per-application firewall rules (`firewall-applications/*/*.yaml`) – from denied flows mapped to their pods; never the zone allow-lists or the platform's rules |
 
 Platform: the same definitions work on GitHub and Azure DevOps (`git.platform` in `config/platform.yaml`). On
 Azure DevOps, issues are Boards work items and runbooks are pipelines; `publish_review.ownLogin` lists the reviewer's

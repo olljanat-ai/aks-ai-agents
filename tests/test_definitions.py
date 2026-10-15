@@ -14,8 +14,9 @@ def writes(name):
     return {g.name for g in DEFS[name].tools if REGISTRY[g.name].writes}
 
 
-def test_all_nine_agents_valid():
+def test_all_ten_agents_valid():
     assert set(DEFS) == {
+        "egress-agent",
         "operations-agent",
         "platform-agent",
         "upgrade-agent",

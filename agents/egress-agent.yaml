@@ -1,0 +1,18 @@
+name: egress-agent
+description: Egress through the hub firewall (D59) – learns the applications' denied destinations and proposes their firewall rules
+instructions: prompts/egress-agent.md
+triggers: [schedule-hourly, firewall-deny-alert]
+model: { effort: high, maxTurns: 60 }
+tools:
+  - design
+  - firewall_denied_flows
+  - pods_by_ip
+  - kubectl
+  - repo_read: { repositories: [firewall, fleet, apps] }
+  # Only the per-application egress files of the landing zone's firewall policies: one file per application
+  # namespace. The zones' allow-lists, the platform's rules and the policies themselves stay with humans.
+  - repo_write:
+      paths:
+        firewall: ["stacks/platform-extensions/firewall-applications/*/*.yaml"]
+  - create_pull_request: { repositories: [firewall] }
+  - search_issues: { repositories: [firewall] }
