@@ -55,7 +55,7 @@ class GitHubClient:
                 raw = response.read()
         except urllib.error.HTTPError as err:
             raise GitHubError(err.code, err.read().decode(errors="replace")[:500]) from err
-        if accept.endswith("diff"):
+        if accept.endswith("diff") or accept.endswith(".raw"):
             return raw.decode(errors="replace")
         return json.loads(raw) if raw else None
 
