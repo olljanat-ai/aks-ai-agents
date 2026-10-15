@@ -152,6 +152,8 @@ def drop_known(rows: list[dict[str, Any]], state: EgressState, networks: list[An
         if networks and not any(ip in n for n in networks):
             continue
         known = state.addresses.get(str(ip))
+        if known and known.get("ignore"):
+            continue  # a node or a platform pod: no application to propose for
         if known and state.suppressed(
             key(known["namespace"], r["Fqdn"], r.get("Protocol", "https"), r.get("DestinationPort", 443))
         ):
@@ -168,6 +170,9 @@ def attribute(
     for r in rows:
         m = mapping.get(r["SourceIp"]) or {}
         if m.get("kind") != "pod" or not m.get("zone") or m.get("team") in (None, "platform"):
+            if m.get("kind") in ("node", "pod"):
+                # Remembered, so the next runs drop it before any cluster access
+                state.addresses[r["SourceIp"]] = {"ignore": True, "kind": m["kind"], "seen": _iso(at)}
             continue
         state.addresses[r["SourceIp"]] = {"namespace": m["namespace"], "zone": m["zone"], "seen": _iso(at)}
         out.append({**r, "pod": m})
