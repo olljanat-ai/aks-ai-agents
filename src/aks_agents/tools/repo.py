@@ -92,6 +92,9 @@ def repo_list(ctx: ToolContext, args: dict[str, Any]) -> str:
     root = workspace(ctx, args["repo"])
     files = _git(root, "ls-files", "--cached", "--others", "--exclude-standard").splitlines()
     matched = [f for f in files if fnmatch.fnmatchcase(f, args["glob"])]
+    if not matched:
+        top = sorted({f.split("/", 1)[0] + ("/" if "/" in f else "") for f in files})
+        return f"no file matches {args['glob']!r}. The repository's top level: {', '.join(top[:100])}"
     return "\n".join(matched[:2000]) + (f"\n... {len(matched) - 2000} more" if len(matched) > 2000 else "")
 
 

@@ -303,3 +303,45 @@ def pods_by_ip(ctx: ToolContext, args: dict[str, Any]) -> list[dict[str, Any]]:
         _items(ctx, cluster, "nodes"),
         _items(ctx, cluster, "namespaces"),
     )
+
+
+@tool(
+    "application_source",
+    "Where a namespace's applications come from: its Flux Kustomizations (path, the Git repository URL and branch, "
+    "applied revision) and which granted repository key that is, so you can repo_list / repo_read the right files "
+    "(start with <path>/kustomization.yaml).",
+    {"cluster": {"type": "string"}, "namespace": {"type": "string"}},
+)
+def application_source(ctx: ToolContext, args: dict[str, Any]) -> list[dict[str, Any]]:
+    cluster = _cluster(ctx, args["cluster"])
+    namespace = args["namespace"]
+    if not namespace.replace("-", "").isalnum():
+        raise ToolError(f"not a namespace name: {namespace}")
+
+    def get(kind: str) -> list[dict[str, Any]]:
+        out = execute(
+            ctx, ["kubectl", "--context", cluster, "--request-timeout=60s", "get", kind, "-n", namespace, "-o", "json"]
+        )
+        return json.loads(out).get("items", [])
+
+    repos = {r["metadata"]["name"]: r.get("spec", {}) for r in get("gitrepositories.source.toolkit.fluxcd.io")}
+    keys = {str(v).lower(): k for k, v in ((ctx.platform.get("git.repositories") or {}).items()) if isinstance(v, str)}
+    sources = []
+    for k in get("kustomizations.kustomize.toolkit.fluxcd.io"):
+        spec = k.get("spec", {})
+        repo = repos.get((spec.get("sourceRef") or {}).get("name"), {})
+        url = repo.get("url", "")
+        slug = url.lower().removeprefix("https://github.com/").removesuffix(".git").strip("/")
+        path = (spec.get("path") or ".").removeprefix("./").strip("/") or "."
+        sources.append(
+            {
+                "kustomization": k["metadata"]["name"],
+                "path": path,
+                "repositoryUrl": url,
+                "branch": (repo.get("ref") or {}).get("branch"),
+                "appliedRevision": (k.get("status") or {}).get("lastAppliedRevision"),
+                "repositoryKey": keys.get(slug),
+                "start": f"repo_read repo={keys.get(slug)} path={path}/kustomization.yaml" if keys.get(slug) else None,
+            }
+        )
+    return sources

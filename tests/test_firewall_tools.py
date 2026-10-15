@@ -178,3 +178,40 @@ def test_log_analytics_reads_labfws_table_or_azure_firewalls(ctx, monkeypatch):
     ctx.platform.raw["environments"]["dev"]["firewall"]["log"] = "log_analytics"
     out = json.loads(REGISTRY["firewall_denied_flows"].run(ctx, {"since_hours": 2}))
     assert out["log"] == "log_analytics" and out["flows"][0]["destination"] == "api.open-meteo.com"
+
+
+def test_application_source_names_the_repository_and_path(ctx):
+    kustomization = {
+        "metadata": {"name": "int-se-example-apps"},
+        "spec": {"path": "./firewall-egress", "sourceRef": {"kind": "GitRepository", "name": "int-se-example"}},
+        "status": {"lastAppliedRevision": "main@sha1:abc"},
+    }
+    repo = {
+        "metadata": {"name": "int-se-example"},
+        "spec": {"url": "https://github.com/onek8s/aks-fluxcd-example", "ref": {"branch": "main"}},
+    }
+
+    def fake(argv):
+        kind = argv[argv.index("get") + 1]
+        assert argv[argv.index("-n") + 1] == "int-se-example"
+        return json.dumps({"items": [kustomization] if kind.startswith("kustomizations") else [repo]})
+
+    ctx.state["exec"] = fake
+    from aks_agents.definition import ToolGrant
+    from aks_agents.tools.base import tools_for
+
+    tools_for([ToolGrant("application_source")])
+    out = json.loads(
+        REGISTRY["application_source"].run(ctx, {"cluster": "aks-dev-int-stateless-az3", "namespace": "int-se-example"})
+    )
+    assert out == [
+        {
+            "kustomization": "int-se-example-apps",
+            "path": "firewall-egress",
+            "repositoryUrl": "https://github.com/onek8s/aks-fluxcd-example",
+            "branch": "main",
+            "appliedRevision": "main@sha1:abc",
+            "repositoryKey": "apps",
+            "start": "repo_read repo=apps path=firewall-egress/kustomization.yaml",
+        }
+    ]

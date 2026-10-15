@@ -125,3 +125,42 @@ def test_the_runtime_loop_runs_on_the_openai_client(tmp_path):
     definition = AgentDefinition("egress-agent", "", "instructions", [ToolGrant("design_list")])
     result = AgentRunner(definition, settings, platform, model=model).run("task")
     assert result.status == "no_action_needed" and result.turns == 2
+
+
+def test_a_repeated_identical_call_is_refused(tmp_path):
+    from aks_agents.definition import AgentDefinition, ToolGrant
+    from aks_agents.llm import ModelClient
+    from aks_agents.runtime import AgentRunner
+    from aks_agents.settings import PlatformConfig, Settings
+
+    call = {
+        "choices": [{"message": {"tool_calls": [{"id": "c", "function": {"name": "design_list", "arguments": "{}"}}]}}]
+    }
+    done = {
+        "choices": [
+            {
+                "message": {
+                    "tool_calls": [
+                        {
+                            "id": "f",
+                            "function": {"name": "finish", "arguments": '{"status": "completed", "summary": "s"}'},
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+    answers = iter([call, call, call, done])
+    platform = PlatformConfig.load("config/onek8s-dev.yaml")
+    model = ModelClient(platform, client=AzureOpenAIClient("r", lambda: "t", post=lambda u, h, b: next(answers)))
+    model.provider = "azure-openai"
+    design = tmp_path / "design"
+    (design / "docs").mkdir(parents=True)
+    (design / "docs" / "01.md").write_text("# x\n")
+    settings = Settings(environment="dev", runs_dir=tmp_path / "runs", design_dir=design, workspace=tmp_path / "ws")
+    runner = AgentRunner(
+        AgentDefinition("egress-agent", "", "i", [ToolGrant("design_list")]), settings, platform, model=model
+    )
+    runner.run("task")
+    events = [line for line in (tmp_path / "runs").rglob("events.jsonl")][0].read_text()
+    assert events.count('"tool_call_repeated"') == 1
