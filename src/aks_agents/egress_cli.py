@@ -64,8 +64,8 @@ class GitHub:
     def file_for(self, namespace: str) -> str | None:
         return self._raw(f"{APPS}/{self.spoke}/{namespace}.yaml", self.branch)
 
-    def open_pr_files(self) -> dict[str, set]:
-        found: dict[str, set] = {}
+    def open_pr_files(self) -> dict[str, dict]:
+        found: dict[str, dict] = {}
         for pr in (
             self.client.request("GET", f"/repos/{self.repo}/pulls", params={"state": "open", "per_page": 100}) or []
         ):
