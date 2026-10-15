@@ -114,9 +114,9 @@ only) lets the tools write directly and logs it.
 `aks-terraform`'s **Egress agent** workflow runs [`egress-agent`](agents/egress-agent.yaml) against the build tenant
 with [`config/onek8s-dev.yaml`](config/onek8s-dev.yaml): Claude Sonnet 5.5 on Microsoft Foundry (Entra ID, the dev
 deployment identity), `kubectl` read verbs on the firewall-egress cell through the labfw VPN, and the denied flows
-exported from labfw's log by a separate job before the agent starts (`firewall.log: file`; with Azure Firewall the
-tool reads `AZFWApplicationRule` / `AZFWNetworkRule` in Log Analytics instead). Its only write is one pull request
-per application namespace to `onek8s/azure-landing-zone`.
+from Log Analytics with Reader: labfw's `LabfwFirewallLog_CL`, which the Azure Monitor Agent on its VM fills
+(`firewall.table`; with Azure Firewall the tool reads `AZFWApplicationRule` / `AZFWNetworkRule`). Its only write is
+one pull request per application namespace to `onek8s/azure-landing-zone`.
 
 ## Assumptions and open points for the design
 

@@ -52,6 +52,8 @@ NAMESPACE = {
 @pytest.fixture
 def ctx(tmp_path, monkeypatch):
     platform = PlatformConfig.load("config/onek8s-dev.yaml")
+    # The file export (firewall.log: file); the Log Analytics test switches it back
+    platform.raw["environments"]["dev"]["firewall"]["log"] = "file"
     definition = AgentDefinition(
         name="egress-agent",
         description="",
@@ -154,3 +156,25 @@ def test_egress_agent_writes_only_application_egress_files():
     assert {g.name for g in egress.tools if REGISTRY[g.name].writes} == {"create_pull_request"}
     assert validate({"egress-agent": egress}, PlatformConfig.load("config/onek8s-dev.yaml")) == []
     assert validate({"egress-agent": egress}, PlatformConfig.load("config/platform.yaml")) == []
+
+
+def test_log_analytics_reads_labfws_table_or_azure_firewalls(ctx, monkeypatch):
+    from aks_agents.tools.firewall import kql
+
+    assert "LabfwFirewallLog_CL" in kql(3, "LabfwFirewallLog_CL") and "ago(3h)" in kql(3, "LabfwFirewallLog_CL")
+    assert "AZFWApplicationRule" in kql(3, None)
+    with pytest.raises(ToolError):
+        kql(3, "x | evil")
+    monkeypatch.setenv("AKS_AGENT_FIREWALL_WORKSPACE", "00000000-0000-0000-0000-00000000000a")
+    rows = [rec(5, "100.64.32.17", fqdn="api.open-meteo.com")]
+
+    def fake(argv):
+        assert argv[:4] == ["az", "monitor", "log-analytics", "query"]
+        assert argv[argv.index("-w") + 1] == "00000000-0000-0000-0000-00000000000a"
+        assert "LabfwFirewallLog_CL" in argv[argv.index("--analytics-query") + 1]
+        return json.dumps(rows)
+
+    ctx.state["exec"] = fake
+    ctx.platform.raw["environments"]["dev"]["firewall"]["log"] = "log_analytics"
+    out = json.loads(REGISTRY["firewall_denied_flows"].run(ctx, {"since_hours": 2}))
+    assert out["log"] == "log_analytics" and out["flows"][0]["destination"] == "api.open-meteo.com"

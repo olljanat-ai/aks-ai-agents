@@ -36,10 +36,12 @@ environments:
     region: germanywestcentral
     resourceGroup: rg-aks-dev
     clusters: [aks-dev-int-stateless-az3, aks-dev-int-stateless-az2]
-    # The hub firewall (design D53, D59): labfw keeps its log on its VM; the agent workflow exports the denied flows
-    # to a file first (firewall.log file). Azure Firewall: log_analytics, from logAnalyticsWorkspaceId.
+    # The hub firewall (design D53, D59): labfw's denied connections in its own workspace log-labfw-germanywestcentral
+    # (table LabfwFirewallLog_CL, AZFW columns; azure-landing-zone modules/labfw logs.tf), read with Reader. The
+    # workflow passes the workspace ID as AKS_AGENT_FIREWALL_WORKSPACE. An Azure Firewall: no table (AZFW tables).
     firewall:
-      log: file
+      log: log_analytics
+      table: LabfwFirewallLog_CL
       spoke: dev-int                # firewall-applications/<spoke>/ of azure-landing-zone
       sourcePrefixes: [100.64.0.0/10, 172.22.0.0/16]
       cells:

@@ -5,7 +5,8 @@ zone's node subnet up to the hub firewall, so a denied flow's source address nam
 where the environment keeps it (``firewall.log`` of the environment in ``platform.yaml``):
 
 - ``log_analytics``: Azure Firewall's resource-specific tables (``AZFWApplicationRule``, ``AZFWNetworkRule``) in the
-  environment's workspace - Monitoring Reader, nothing else;
+  firewall's workspace - or labfw's ``LabfwFirewallLog_CL`` with the same columns (``firewall.table``), which the
+  Azure Monitor Agent on its VM fills - read with Reader on the workspace, nothing else;
 - ``file``: JSON lines with the same field names (labfw's ``azfw.jsonl``), exported by the job before the agent
   starts (``AKS_AGENT_FIREWALL_LOG``) - the lab's labfw keeps its log on its VM, which only its operator reads.
 
@@ -125,18 +126,33 @@ def _read_file(path: str) -> Iterable[dict[str, Any]]:
 
 
 KQL = """
-union isfuzzy=true AZFWApplicationRule, AZFWNetworkRule
+{source}
 | where TimeGenerated > ago({hours}h) and Action == "Deny"
-| project TimeGenerated, Category = Type, Action, SourceIp, Fqdn, DestinationIp, DestinationPort, Protocol,
+| project TimeGenerated, Category = {category}, Action, SourceIp, Fqdn, DestinationIp, DestinationPort, Protocol,
           Policy, RuleCollectionGroup, RuleCollection, Rule, ActionReason
 | take 5000
 """
+AZFW_SOURCE = "union isfuzzy=true AZFWApplicationRule, AZFWNetworkRule"
+
+
+def kql(hours: int, table: str | None) -> str:
+    if table:
+        if not table.replace("_", "").isalnum():
+            raise ToolError(f"invalid firewall.table {table!r}")
+        return KQL.format(source=table, category="Category", hours=hours)
+    return KQL.format(source=AZFW_SOURCE, category="Type", hours=hours)
 
 
 def _read_log_analytics(ctx: ToolContext, hours: int) -> list[dict[str, Any]]:
-    workspace = ctx.platform.environment(ctx.settings.environment).get("logAnalyticsWorkspaceId")
+    env = ctx.platform.environment(ctx.settings.environment)
+    firewall = env.get("firewall") or {}
+    workspace = (
+        os.environ.get("AKS_AGENT_FIREWALL_WORKSPACE")
+        or firewall.get("workspaceId")
+        or env.get("logAnalyticsWorkspaceId")
+    )
     if not workspace:
-        raise ToolError("the environment names no logAnalyticsWorkspaceId")
+        raise ToolError("no firewall workspace: set firewall.workspaceId or AKS_AGENT_FIREWALL_WORKSPACE")
     out = execute(
         ctx,
         [
@@ -147,7 +163,7 @@ def _read_log_analytics(ctx: ToolContext, hours: int) -> list[dict[str, Any]]:
             "-w",
             workspace,
             "--analytics-query",
-            KQL.format(hours=hours),
+            kql(hours, firewall.get("table")),
             "-o",
             "json",
         ],
