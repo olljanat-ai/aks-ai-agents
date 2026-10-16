@@ -124,7 +124,8 @@ after the last processed ingestion time (the checkpoint), but never more than 3 
 a first run or one after a long pause starts there; only denials, unless `--include-allowed` (or
 `firewall.includeAllowed`) adds the allowed lines for a firewall that still allows by default; no bare IP destinations;
 sources already known to be nodes or platform pods, or to belong to a namespace with a pending proposal, are dropped
-before any cluster access; then pods are attributed and every
+before any cluster access; in an overlay cell (design D61) a zone node's address stands for the application pods on the node
+(one candidate: its namespace; several: the model picks by configuration, the others are declined for a day); then pods are attributed and every
 (namespace, destination) already in the firewall file, in an open agent pull request, pending, merged in the last
 hour or rejected in the last week is dropped. Nothing left: no VPN, no cluster access, no model call. What is left
 goes into the model's task, so it neither re-queries the log nor re-maps the pods.
