@@ -14,6 +14,11 @@ with their pods (the platform's pipeline, `aks-agent egress propose`, has filter
 start at step 4 - those flows are new, from application pods and not proposed yet. Each says its `action`: Deny
 (the firewall denied it) or Allow (a broad rule or the firewall's default still allows it - where the platform
 includes allowed traffic). Either way the application needs a rule of its own for it.
+A flow with `viaNode: true` comes from a cell with an overlay: the firewall saw the node's address, and the platform
+attributed it to the application pods on that node. Propose it only when the application's configuration names the
+destination (`application_source`); when it carries `ambiguousBetween`, open the pull request only for the namespace
+whose configuration names it, and none for the others. The firewall's rule opens the destination for the whole zone -
+say so in the pull request.
 
 1. `firewall_denied_flows` (the task says how many hours; default 3). Each flow has the source address, the
    destination (an FQDN for an application rule, an IP for a network rule), port, protocol, counts, first and last

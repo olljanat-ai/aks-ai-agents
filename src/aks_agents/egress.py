@@ -37,6 +37,7 @@ STATE_VERSION = 1
 MERGED_GRACE = dt.timedelta(hours=1)
 REJECTED_SUPPRESS = dt.timedelta(days=7)
 IP_MEMORY = dt.timedelta(hours=6)
+DECLINED_SUPPRESS = dt.timedelta(days=1)
 MAX_LOOKBACK = dt.timedelta(hours=3)
 MAX_ROWS = 2000
 
@@ -107,7 +108,7 @@ class EgressState:
         )
 
     def suppressed(self, k: str) -> bool:
-        return k in self.proposals and self.proposals[k]["status"] in ("pending", "merged", "rejected")
+        return k in self.proposals and self.proposals[k]["status"] in ("pending", "merged", "rejected", "declined")
 
     def forget_old(self, at: dt.datetime) -> None:
         for ip, entry in list(self.addresses.items()):
@@ -115,8 +116,10 @@ class EgressState:
                 del self.addresses[ip]
         for k, entry in list(self.proposals.items()):
             updated = _parse(entry.get("updated")) or at
-            if (entry["status"] == "merged" and updated < at - MERGED_GRACE) or (
-                entry["status"] == "rejected" and updated < at - REJECTED_SUPPRESS
+            if (
+                (entry["status"] == "merged" and updated < at - MERGED_GRACE)
+                or (entry["status"] == "rejected" and updated < at - REJECTED_SUPPRESS)
+                or (entry["status"] == "declined" and updated < at - DECLINED_SUPPRESS)
             ):
                 del self.proposals[k]
 
@@ -179,8 +182,12 @@ def drop_known(rows: list[dict[str, Any]], state: EgressState, networks: list[An
         known = state.addresses.get(str(ip))
         if known and known.get("ignore"):
             continue  # a node or a platform pod: no application to propose for
-        if known and state.suppressed(
-            key(known["namespace"], r["Fqdn"], r.get("Protocol", "https"), r.get("DestinationPort", 443))
+        # A zone node (overlay: the firewall sees the node, and decides per zone) is known by the application
+        # namespaces whose pods ran on it; one proposal for the destination covers the whole zone
+        namespaces = known.get("namespaces") or [known.get("namespace")] if known else []
+        if any(
+            ns and state.suppressed(key(ns, r["Fqdn"], r.get("Protocol", "https"), r.get("DestinationPort", 443)))
+            for ns in namespaces
         ):
             continue
         kept.append(r)
@@ -190,10 +197,34 @@ def drop_known(rows: list[dict[str, Any]], state: EgressState, networks: list[An
 def attribute(
     rows: list[dict[str, Any]], mapping: dict[str, dict[str, Any]], state: EgressState, at: dt.datetime
 ) -> list[dict[str, Any]]:
-    """Joins flows with their pods (pods_by_ip results by IP); remembers application pods' namespaces."""
+    """Joins flows with their pods (pods_by_ip results by IP); remembers application pods' namespaces.
+
+    A zone node's own address (an overlay cell: pod traffic leaves the cluster with its node's address, design
+    D61) is attributed to the application pods running on that node (``candidates`` in its mapping): one flow per
+    candidate namespace, marked ``via_node`` - and ``ambiguous`` when several namespaces share the node, so the
+    model proposes only for the one whose configuration names the destination. Nodes without a zone (the system
+    pool) and the platform's pods are remembered as nothing to propose for."""
     out = []
     for r in rows:
         m = mapping.get(r["SourceIp"]) or {}
+        if m.get("kind") == "node" and m.get("zone") and m.get("candidates"):
+            candidates = m["candidates"]
+            namespaces = sorted({c["namespace"] for c in candidates})
+            state.addresses[r["SourceIp"]] = {
+                "namespaces": namespaces,
+                "zone": m["zone"],
+                "node": m.get("node"),
+                "seen": _iso(at),
+            }
+            for ns in namespaces:
+                pod = next(c for c in candidates if c["namespace"] == ns)
+                flow = {**r, "pod": {**pod, "zone": m["zone"], "node": m.get("node"), "via_node": True}}
+                if len(namespaces) > 1:
+                    flow["ambiguous"] = namespaces
+                out.append(flow)
+            continue
+        if m.get("kind") == "node" and m.get("zone"):
+            continue  # a zone node with no application pod now: nothing to attribute it to, try again next time
         if m.get("kind") != "pod" or not m.get("zone") or m.get("team") in (None, "platform"):
             if m.get("kind") in ("node", "pod"):
                 # Remembered, so the next runs drop it before any cluster access
@@ -202,6 +233,39 @@ def attribute(
         state.addresses[r["SourceIp"]] = {"namespace": m["namespace"], "zone": m["zone"], "seen": _iso(at)}
         out.append({**r, "pod": m})
     return out
+
+
+def node_candidates(
+    node: str, zone: str, pods: list[dict[str, Any]], namespaces: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """The application pods on a zone node: not host-network, in a namespace of the node's zone that an
+    application team owns (not the platform's)."""
+    by_ns = {ns["metadata"]["name"]: ns["metadata"] for ns in namespaces}
+    found = []
+    for pod in pods:
+        spec, meta = pod.get("spec") or {}, pod.get("metadata") or {}
+        if spec.get("nodeName") != node or spec.get("hostNetwork"):
+            continue
+        ns = by_ns.get(meta.get("namespace"), {})
+        labels = ns.get("labels") or {}
+        if labels.get("platform/zone") != zone or labels.get("platform/team") in (None, "platform"):
+            continue
+        if labels.get("platform/role"):
+            continue  # the zone's own platform namespaces (gateway, secrets)
+        pod_labels = meta.get("labels") or {}
+        owner = (meta.get("ownerReferences") or [{}])[0]
+        found.append(
+            {
+                "kind": "pod",
+                "namespace": meta.get("namespace"),
+                "pod": meta.get("name"),
+                "app": pod_labels.get("app.kubernetes.io/name") or pod_labels.get("app"),
+                "workload": {"kind": owner.get("kind"), "name": owner.get("name")},
+                "team": labels.get("platform/team"),
+                "contact": (ns.get("annotations") or {}).get("platform/contact"),
+            }
+        )
+    return found
 
 
 def existing_fqdns(file_text: str | None) -> set[tuple[str, str, str]]:
@@ -248,21 +312,34 @@ def to_propose(
 def record(
     state: EgressState, proposed: dict[str, list[dict[str, Any]]], outputs: list[dict[str, Any]], at: dt.datetime
 ) -> None:
-    """Marks every proposed (namespace, destination) pending with the pull request that carries it."""
+    """Marks every proposed (namespace, destination) pending with the pull request that carries it, and the ones
+    the model proposed nothing for as declined for a day - so the same flows do not start the model again on every
+    run (an ambiguous zone-node flow is declined for the namespaces that did not get the pull request)."""
+
+    def flow_key(ns: str, f: dict[str, Any]) -> str:
+        proto = str(f.get("Protocol", "https")).lower()
+        return key(ns, f["Fqdn"], "https" if proto in ("https", "tls") else proto, f.get("DestinationPort", 443))
+
+    covered: set[str] = set()
     for out in outputs:
         if out.get("type") != "pull_request" or not out.get("number"):
             continue
         for path in out.get("files", []):
             ns = Path(path).stem
             for f in proposed.get(ns, []):
-                proto = str(f.get("Protocol", "https")).lower()
-                k = key(ns, f["Fqdn"], "https" if proto in ("https", "tls") else proto, f.get("DestinationPort", 443))
+                k = flow_key(ns, f)
+                covered.add(k)
                 state.proposals[k] = {
                     "status": "pending",
                     "pr": {"repo": out["repo"], "number": out["number"], "url": out.get("url")},
                     "created": _iso(at),
                     "updated": _iso(at),
                 }
+    for ns, flows in proposed.items():
+        for f in flows:
+            k = flow_key(ns, f)
+            if k not in covered and not state.suppressed(k):
+                state.proposals[k] = {"status": "declined", "created": _iso(at), "updated": _iso(at)}
 
 
 def task_text(proposed: dict[str, list[dict[str, Any]]], spoke: str) -> str:
@@ -270,6 +347,9 @@ def task_text(proposed: dict[str, list[dict[str, Any]]], spoke: str) -> str:
         "These flows are new and not proposed yet - the platform already filtered them (only new, only application",
         "pods, not in the firewall files or open pull requests). `action` Deny: the firewall denied it; Allow: a broad",
         "rule or the default still allowed it - the application needs its own rule all the same.",
+        "`viaNode`: the cell has an overlay, so the firewall saw the node's address and the flow is attributed to the",
+        "application pods on that node - propose only if the application's configuration names the destination;",
+        "with `ambiguousBetween`, open the pull request only for the namespace whose configuration names it.",
         "Do not call firewall_denied_flows or",
         f"pods_by_ip again. The firewall files are under stacks/platform-extensions/firewall-applications/{spoke}/.",
         "For each namespace: check the destination in its configuration (application_source, then repo_read), write",
@@ -285,12 +365,14 @@ def task_text(proposed: dict[str, list[dict[str, Any]]], spoke: str) -> str:
                         "port": f.get("DestinationPort"),
                         "protocol": f.get("Protocol"),
                         "action": f.get("Action", "Deny"),
+                        "viaNode": bool(f["pod"].get("via_node")),
+                        "ambiguousBetween": f.get("ambiguous"),
                         "count": f.get("Count"),
                         "firstSeen": f.get("FirstSeen"),
                         "lastSeen": f.get("LastSeen"),
                         "pod": {
                             k: f["pod"].get(k)
-                            for k in ("namespace", "pod", "workload", "app", "zone", "team", "contact")
+                            for k in ("namespace", "pod", "workload", "app", "zone", "team", "contact", "node")
                         },
                     }
                     for f in flows
