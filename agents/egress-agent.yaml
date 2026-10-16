@@ -15,5 +15,7 @@ tools:
   - repo_write:
       paths:
         firewall: ["stacks/platform-extensions/firewall-applications/*/*.yaml"]
+  # Adds entries to those files; existing entries are never rewritten (create_pull_request refuses that too).
+  - firewall_egress_add
   - create_pull_request: { repositories: [firewall] }
   - search_issues: { repositories: [firewall] }

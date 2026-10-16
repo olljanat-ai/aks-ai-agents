@@ -16,6 +16,7 @@ from __future__ import annotations
 import fnmatch
 import re
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,10 @@ from .base import ToolContext, ToolError, tool
 from .core import safe_join
 
 REPO_PROPERTY = {"type": "string", "description": "Repository key, e.g. iac, fleet or design"}
+
+# Checks of a changed file before create_pull_request commits it: (glob, check(path, old text or None, new text or
+# None)) - a check raises ToolError to refuse the pull request. Other tool modules register theirs.
+FILE_CHECKS: list[tuple[str, Callable[[str, str | None, str | None], None]]] = []
 
 
 def git_platform(ctx: ToolContext) -> GitPlatform:
@@ -275,8 +280,14 @@ def create_pull_request(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any
     changes = _changes(root)
     if not changes:
         raise ToolError("no changes in the workspace; write files first")
-    for path in changes:
+    for path, content in changes.items():
         _check_write_path(ctx, key, path)
+        checks = [check for glob, check in FILE_CHECKS if fnmatch.fnmatchcase(path, glob)]
+        if checks:
+            old = _git(root, "show", f"HEAD:{path}", check=False) or None
+            new = content.decode() if content is not None else None
+            for check in checks:
+                check(path, old, new)
     if not re.search(r"(docs/\d{2}-[\w-]+\.md|[Ss]ection \d+)", args["design_section"]):
         raise ToolError("design_section must cite a design document, e.g. docs/15-ai-driven-day-2-operations.md")
     repo = ctx.platform.repository(key)
