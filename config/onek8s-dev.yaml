@@ -45,6 +45,9 @@ environments:
     firewall:
       log: log_analytics
       table: LabfwFirewallLog_CL
+      # Allowed flows too (`aks-agent egress new --include-allowed`): for a firewall that still allows by default, so every
+      # application's egress becomes its own rule first. Off here: labfw denies by default and logs denials only.
+      includeAllowed: false
       spoke: dev-int                # firewall-applications/<spoke>/ of azure-landing-zone
       sourcePrefixes: [100.64.0.0/10, 172.22.0.0/16]
       cells:

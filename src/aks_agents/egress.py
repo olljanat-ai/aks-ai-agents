@@ -3,11 +3,15 @@
 The model is the expensive part, so everything that needs no judgement runs here, in code, and the model sees only
 what is left:
 
-1. ``new``: the denied connections Log Analytics *ingested* since the last run, at most ``since_minutes`` ago (default
-   5) - older events are ignored, and allowed traffic is never read (the query asks for ``Action == "Deny"``). Bare IP
-   destinations (no FQDN the firewall saw) are dropped: no application rule can name them. Sources whose pod is
-   already known to belong to a namespace with a pending (or recently rejected) proposal for that destination are
-   dropped too. Nothing left: the run ends here - no VPN, no cluster access, no model call.
+1. ``new``: the connections Log Analytics *ingested* since the last processed ingestion time (the state's
+   checkpoint), but never further back than ``max_lookback`` (default 3 hours): a run after a long pause, or the first
+   one, starts there and older events are ignored. Only denied connections by default (the query asks for
+   ``Action == "Deny"``); ``include_allowed`` adds the allowed ones too, for an environment whose firewall still allows
+   by default - every application's real egress then becomes an explicit rule before the default turns to deny (the
+   firewall's log must keep allowed lines then: azure-landing-zone ``labfw.log_analytics.denied_only = false``). Bare
+   IP destinations (no FQDN the firewall saw) are dropped: no application rule can name them. Sources already known to
+   be nodes or platform pods, or to belong to a namespace with a pending (or recently rejected) proposal for that
+   destination, are dropped too. Nothing left: the run ends here - no VPN, no cluster access, no model call.
 2. ``propose``: the remaining source addresses are mapped to pods (read-only kubectl); node addresses and the
    platform's own namespaces are dropped; so is every (namespace, destination) already in the application's firewall
    file on the default branch, in an open pull request of this agent, or pending / rejected in the state. Only then
@@ -33,15 +37,17 @@ STATE_VERSION = 1
 MERGED_GRACE = dt.timedelta(hours=1)
 REJECTED_SUPPRESS = dt.timedelta(days=7)
 IP_MEMORY = dt.timedelta(hours=6)
-DEFAULT_SINCE_MINUTES = 5
+MAX_LOOKBACK = dt.timedelta(hours=3)
+MAX_ROWS = 2000
 
 KQL_NEW = """
 {table}
-| where ingestion_time() > datetime({checkpoint}) and ingestion_time() > ago({minutes}m)
-| where Action == "Deny" and isnotempty(Fqdn)
+| where ingestion_time() > datetime({start})
+| where Action in ({actions}) and isnotempty(Fqdn)
 | summarize Count = count(), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated),
-            Ingested = max(ingestion_time()) by SourceIp, Fqdn, DestinationPort, Protocol
-| take 500
+            Ingested = max(ingestion_time()) by SourceIp, Fqdn, DestinationPort, Protocol, Action
+| order by Ingested asc
+| take {limit}
 """
 
 
@@ -127,17 +133,36 @@ class EgressState:
         self.forget_old(at)
 
 
-def new_denials(query, state: EgressState, table: str, since_minutes: int, at: dt.datetime) -> list[dict[str, Any]]:
-    """Denied flows ingested since the checkpoint and within the window; advances the checkpoint."""
+def window_start(state: EgressState, at: dt.datetime, max_lookback: dt.timedelta = MAX_LOOKBACK) -> str:
+    """Where this run starts reading: the checkpoint, or ``max_lookback`` ago if the checkpoint is older."""
+    checkpoint = _parse(state.checkpoint) or dt.datetime.min.replace(tzinfo=dt.UTC)
+    return _iso(max(checkpoint, at - max_lookback))
+
+
+def new_flows(
+    query,
+    state: EgressState,
+    table: str,
+    at: dt.datetime,
+    max_lookback: dt.timedelta = MAX_LOOKBACK,
+    include_allowed: bool = False,
+) -> list[dict[str, Any]]:
+    """Flows ingested since the checkpoint (at most ``max_lookback`` back); advances the checkpoint to the newest one.
+
+    Denied flows only, unless ``include_allowed``. With nothing new the checkpoint stays: the next run continues from
+    it (until it is older than ``max_lookback``)."""
     if not table.replace("_", "").isalnum():
         raise ValueError(f"invalid table {table!r}")
-    rows = query(KQL_NEW.format(table=table, checkpoint=state.checkpoint, minutes=int(since_minutes)))
+    actions = '"Deny", "Allow"' if include_allowed else '"Deny"'
+    start = window_start(state, at, max_lookback)
+    rows = query(KQL_NEW.format(table=table, start=start, actions=actions, limit=MAX_ROWS))
     newest = max(
         (_parse(r.get("Ingested")) for r in rows),
         default=None,
         key=lambda t: t or dt.datetime.min.replace(tzinfo=dt.UTC),
     )
-    state.checkpoint = _iso(newest) if newest else max(state.checkpoint, _iso(at - dt.timedelta(minutes=since_minutes)))
+    if newest:
+        state.checkpoint = _iso(newest)
     return rows
 
 
@@ -242,8 +267,10 @@ def record(
 
 def task_text(proposed: dict[str, list[dict[str, Any]]], spoke: str) -> str:
     lines = [
-        "These denied flows are new and not proposed yet - the platform already filtered them (only denials, only new,",
-        "only application pods, not in the firewall files or open pull requests). Do not call firewall_denied_flows or",
+        "These flows are new and not proposed yet - the platform already filtered them (only new, only application",
+        "pods, not in the firewall files or open pull requests). `action` Deny: the firewall denied it; Allow: a broad",
+        "rule or the default still allowed it - the application needs its own rule all the same.",
+        "Do not call firewall_denied_flows or",
         f"pods_by_ip again. The firewall files are under stacks/platform-extensions/firewall-applications/{spoke}/.",
         "For each namespace: check the destination in its configuration (application_source, then repo_read), write",
         "its file and open one pull request, as your instructions say. Then finish.",
@@ -257,6 +284,7 @@ def task_text(proposed: dict[str, list[dict[str, Any]]], spoke: str) -> str:
                         "fqdn": f["Fqdn"],
                         "port": f.get("DestinationPort"),
                         "protocol": f.get("Protocol"),
+                        "action": f.get("Action", "Deny"),
                         "count": f.get("Count"),
                         "firstSeen": f.get("FirstSeen"),
                         "lastSeen": f.get("LastSeen"),

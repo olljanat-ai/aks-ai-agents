@@ -18,7 +18,7 @@ def row(ip="100.64.32.26", fqdn="api.open-meteo.com", ingested="2026-10-15T20:58
     return {"SourceIp": ip, "Fqdn": fqdn, "DestinationPort": 443, "Protocol": "HTTPS", "Count": 4, "Ingested": ingested}
 
 
-def test_new_denials_reads_only_the_window_since_the_checkpoint_and_advances_it():
+def test_new_flows_continue_from_the_checkpoint_and_advance_it():
     state = egress.EgressState(checkpoint="2026-10-15T20:50:00Z")
     seen = {}
 
@@ -26,17 +26,42 @@ def test_new_denials_reads_only_the_window_since_the_checkpoint_and_advances_it(
         seen["kql"] = kql
         return [row(ingested="2026-10-15T20:58:00Z"), row(ip="100.64.32.28", ingested="2026-10-15T20:59:00Z")]
 
-    rows = egress.new_denials(query, state, "LabfwFirewallLog_CL", 5, AT)
+    rows = egress.new_flows(query, state, "LabfwFirewallLog_CL", AT)
     assert len(rows) == 2
-    assert (
-        'Action == "Deny"' in seen["kql"]
-        and "ago(5m)" in seen["kql"]
-        and "datetime(2026-10-15T20:50:00Z)" in seen["kql"]
-    )
+    assert 'Action in ("Deny")' in seen["kql"] and "datetime(2026-10-15T20:50:00Z)" in seen["kql"]
     assert state.checkpoint == "2026-10-15T20:59:00Z"
-    # Nothing new: the checkpoint moves to the start of the window, never back
-    egress.new_denials(lambda kql: [], state, "LabfwFirewallLog_CL", 5, AT)
+    # Nothing new: the checkpoint stays, the next run continues from it
+    egress.new_flows(lambda kql: [], state, "LabfwFirewallLog_CL", AT)
     assert state.checkpoint == "2026-10-15T20:59:00Z"
+
+
+def test_never_further_back_than_the_lookback():
+    seen = {}
+
+    def query(kql):
+        seen["kql"] = kql
+        return []
+
+    # First run, or a checkpoint from yesterday: three hours back, older events ignored
+    for state in (egress.EgressState(), egress.EgressState(checkpoint="2026-10-14T12:00:00Z")):
+        egress.new_flows(query, state, "LabfwFirewallLog_CL", AT)
+        assert "datetime(2026-10-15T18:00:00Z)" in seen["kql"]
+    egress.new_flows(query, egress.EgressState(), "LabfwFirewallLog_CL", AT, max_lookback=dt.timedelta(minutes=30))
+    assert "datetime(2026-10-15T20:30:00Z)" in seen["kql"]
+
+
+def test_allowed_flows_on_request():
+    seen = {}
+
+    def query(kql):
+        seen["kql"] = kql
+        return [{**row(), "Action": "Allow"}]
+
+    state = egress.EgressState()
+    rows = egress.new_flows(query, state, "LabfwFirewallLog_CL", AT, include_allowed=True)
+    assert 'Action in ("Deny", "Allow")' in seen["kql"]
+    flows = egress.attribute(rows, {"100.64.32.26": POD}, state, AT)
+    assert '"action": "Allow"' in egress.task_text({"int-se-example": flows}, "dev-int")
 
 
 def test_a_pending_proposal_stops_known_sources_before_any_cluster_access():
