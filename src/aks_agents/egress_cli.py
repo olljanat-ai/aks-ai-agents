@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import ipaddress
 import json
 import os
@@ -92,13 +93,25 @@ def cmd_new(args: argparse.Namespace, settings: Settings) -> int:
     gh = GitHub(platform, fw.get("spoke", ""))
     state.refresh(gh.pr_state, at)
     workspace = os.environ.get("AKS_AGENT_FIREWALL_WORKSPACE") or fw.get("workspaceId")
-    rows = egress.new_denials(
-        _az_query(workspace), state, fw.get("table", "AZFWApplicationRule"), args.since_minutes, at
+    include_allowed = args.include_allowed or bool(fw.get("includeAllowed", False))
+    start = egress.window_start(state, at, dt.timedelta(minutes=args.max_lookback_minutes))
+    rows = egress.new_flows(
+        _az_query(workspace),
+        state,
+        fw.get("table", "AZFWApplicationRule"),
+        at,
+        max_lookback=dt.timedelta(minutes=args.max_lookback_minutes),
+        include_allowed=include_allowed,
     )
     kept = egress.drop_known(rows, state, _networks(fw.get("sourcePrefixes") or []))
     state.save(args.state)
     Path(args.out).write_text(json.dumps(kept, default=str))
-    print(f"denied flows ingested in the window: {len(rows)}; new to look at: {len(kept)}")
+    kind = "denied and allowed" if include_allowed else "denied"
+    print(
+        f"{kind} flows ingested since {start}: {len(rows)}; new to look at: {len(kept)}; checkpoint {state.checkpoint}"
+    )
+    if len(rows) >= egress.MAX_ROWS:
+        print(f"at most {egress.MAX_ROWS} flows a run: the next run continues from the checkpoint")
     _output("new", len(kept))
     return 0
 
@@ -155,10 +168,20 @@ def _output(name: str, value: Any) -> None:
 def add_parser(sub) -> None:
     eg = sub.add_parser("egress", help="the egress agent's deterministic steps (new denials, attribution, dedup)")
     esub = eg.add_subparsers(dest="egress_command", required=True)
-    new = esub.add_parser("new", help="denied flows ingested since the last run (no cluster access, no model)")
+    new = esub.add_parser("new", help="flows ingested since the last run (no cluster access, no model)")
     new.add_argument("--state", required=True)
     new.add_argument("--out", required=True)
-    new.add_argument("--since-minutes", type=int, default=egress.DEFAULT_SINCE_MINUTES)
+    new.add_argument(
+        "--max-lookback-minutes",
+        type=int,
+        default=int(egress.MAX_LOOKBACK.total_seconds() // 60),
+        help="never read further back than this, whatever the checkpoint (default 180)",
+    )
+    new.add_argument(
+        "--include-allowed",
+        action="store_true",
+        help="allowed flows too (a firewall that still allows by default); also firewall.includeAllowed in the config",
+    )
     new.add_argument("--env", help="environment (default AKS_AGENT_ENV)")
     new.set_defaults(func=cmd_new)
     prop = esub.add_parser("propose", help="map to pods, drop what is proposed already, run the model on the rest")

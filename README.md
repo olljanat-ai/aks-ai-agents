@@ -119,9 +119,12 @@ from Log Analytics with Reader: labfw's `LabfwFirewallLog_CL`, which the Azure M
 one pull request per application namespace to `onek8s/azure-landing-zone`.
 
 The model is the expensive part, so [`egress.py`](src/aks_agents/egress.py) does everything else in code and keeps a
-state file between runs (`aks-agent egress new`, then `aks-agent egress propose`): only denials, only those ingested
-in the last 5 minutes and since the previous run, no bare IP destinations; sources already known to belong to a
-namespace with a pending proposal are dropped before any cluster access; then pods are attributed and every
+state file between runs (`aks-agent egress new`, then `aks-agent egress propose`): only what Log Analytics ingested
+after the last processed ingestion time (the checkpoint), but never more than 3 hours back (`--max-lookback-minutes`) -
+a first run or one after a long pause starts there; only denials, unless `--include-allowed` (or
+`firewall.includeAllowed`) adds the allowed lines for a firewall that still allows by default; no bare IP destinations;
+sources already known to be nodes or platform pods, or to belong to a namespace with a pending proposal, are dropped
+before any cluster access; then pods are attributed and every
 (namespace, destination) already in the firewall file, in an open agent pull request, pending, merged in the last
 hour or rejected in the last week is dropped. Nothing left: no VPN, no cluster access, no model call. What is left
 goes into the model's task, so it neither re-queries the log nor re-maps the pods.

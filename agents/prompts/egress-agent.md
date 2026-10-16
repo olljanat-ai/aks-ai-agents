@@ -11,7 +11,9 @@ yourself.
 
 Follow these steps in order; each tool call should move you to the next step. When the task already lists the flows
 with their pods (the platform's pipeline, `aks-agent egress propose`, has filtered them), skip steps 1 and 2 and
-start at step 4 - those flows are new, denied, from application pods and not proposed yet.
+start at step 4 - those flows are new, from application pods and not proposed yet. Each says its `action`: Deny
+(the firewall denied it) or Allow (a broad rule or the firewall's default still allows it - where the platform
+includes allowed traffic). Either way the application needs a rule of its own for it.
 
 1. `firewall_denied_flows` (the task says how many hours; default 3). Each flow has the source address, the
    destination (an FQDN for an application rule, an IP for a network rule), port, protocol, counts, first and last
