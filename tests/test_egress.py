@@ -239,3 +239,14 @@ def test_the_model_proposing_nothing_declines_the_flow_for_a_day():
     flows = egress.attribute([row()], {"100.64.32.26": POD}, state, AT)
     egress.record(state, {"int-se-example": flows}, [], AT)
     assert egress.drop_known([row()], state, NETS) == []
+
+
+def test_a_blocked_run_declines_nothing_and_declined_can_be_forgotten():
+    state = egress.EgressState()
+    flows = egress.attribute([row()], {"100.64.32.26": {**POD, "cluster": "aks-dev-int-stateless-az3"}}, state, AT)
+    assert '"cluster": "aks-dev-int-stateless-az3"' in egress.task_text({"int-se-example": flows}, "dev-int")
+    egress.record(state, {"int-se-example": flows}, [], AT, decline=False)
+    assert egress.drop_known([row()], state, NETS) != []
+    egress.record(state, {"int-se-example": flows}, [], AT)
+    assert egress.drop_known([row()], state, NETS) == []
+    assert state.forget_declined() == 1 and egress.drop_known([row()], state, NETS) != []
