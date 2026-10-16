@@ -372,8 +372,8 @@ def task_text(proposed: dict[str, list[dict[str, Any]]], spoke: str) -> str:
         "Do not call firewall_denied_flows or",
         f"pods_by_ip again. The firewall files are under stacks/platform-extensions/firewall-applications/{spoke}/.",
         "For each namespace: check the destination in its configuration (application_source with the flow's `cluster`",
-        "and `namespace`, then repo_read), write",
-        "its file and open one pull request, as your instructions say. Then finish.",
+        "and `namespace`, then repo_read), add its destinations with firewall_egress_add (it keeps the file's",
+        "existing entries - never replace one) and open one pull request, as your instructions say. Then finish.",
         "",
         "```json",
         json.dumps(

@@ -10,7 +10,9 @@ where the environment keeps it (``firewall.log`` of the environment in ``platfor
 - ``file``: JSON lines with the same field names (labfw's ``azfw.jsonl``), exported by the job before the agent
   starts (``AKS_AGENT_FIREWALL_LOG``) - the lab's labfw keeps its log on its VM, which only its operator reads.
 
-Both are read-only. The pods are found with read verbs only (pods, nodes and namespaces - never Secrets)."""
+Both are read-only. The pods are found with read verbs only (pods, nodes and namespaces - never Secrets).
+``firewall_egress_add`` adds destinations to an application's egress file in the run's workspace without touching its
+existing entries, and create_pull_request refuses any change of such a file that removes or rewrites one."""
 
 from __future__ import annotations
 
@@ -18,11 +20,16 @@ import datetime as dt
 import ipaddress
 import json
 import os
+import re
 from collections.abc import Iterable
 from typing import Any
 
+import yaml
+
 from .base import ToolContext, ToolError, tool
+from .core import safe_join
 from .kubernetes import _cluster
+from .repo import FILE_CHECKS, _check_repo, _check_write_path, workspace
 from .shell import execute
 
 MAX_FLOWS = 200
@@ -345,3 +352,177 @@ def application_source(ctx: ToolContext, args: dict[str, Any]) -> list[dict[str,
             }
         )
     return sources
+
+
+# The applications' egress files of the landing zone (one per application namespace). Their entries are added, never
+# rewritten: a pull request of an agent may add destinations, but an existing entry stays exactly as a human merged it.
+APPLICATION_FILES = "stacks/platform-extensions/firewall-applications"
+_FQDN = re.compile(r"^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
+_NAME = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
+_ITEM = re.compile(r"^(\s*)- ")
+
+
+def _entry_key(entry: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(entry.get("fqdn", "")).lower(),
+        str(entry.get("protocol", "https")).lower(),
+        str(entry.get("port", 443)),
+    )
+
+
+def _load_egress_file(path: str, text: str) -> dict[str, Any]:
+    try:
+        data = yaml.safe_load(text) or {}
+    except yaml.YAMLError as err:
+        raise ToolError(f"{path} is not valid YAML: {err}") from err
+    if not isinstance(data, dict) or not isinstance(data.get("egress") or [], list):
+        raise ToolError(f"{path}: expected a mapping with zone, contact and an egress list")
+    return data
+
+
+def keep_egress_entries(path: str, old: str | None, new: str | None) -> None:
+    """Refuses a change of an application's egress file that removes or changes an entry already on the default
+    branch, or its zone: an agent only adds destinations."""
+    if old is None:
+        return
+    if new is None:
+        raise ToolError(f"{path}: an agent may not delete an application's egress file")
+    before, after = _load_egress_file(path, old), _load_egress_file(path, new)
+    if before.get("zone") != after.get("zone"):
+        raise ToolError(f"{path}: the zone may not change ({before.get('zone')} -> {after.get('zone')})")
+    now = {_entry_key(e): e for e in after.get("egress") or [] if isinstance(e, dict)}
+    for entry in before.get("egress") or []:
+        if not isinstance(entry, dict):
+            continue
+        key = _entry_key(entry)
+        if key not in now:
+            raise ToolError(
+                f"{path}: the change removes the existing entry {key[0]} ({key[1]}/{key[2]}); keep every existing "
+                "entry and only add new ones (firewall_egress_add does that)"
+            )
+        if now[key] != entry:
+            raise ToolError(
+                f"{path}: the change rewrites the existing entry {key[0]} ({key[1]}/{key[2]}); existing entries stay "
+                "unchanged - only add new ones (firewall_egress_add does that)"
+            )
+
+
+def _entry_block(indent: str, entry: dict[str, Any]) -> list[str]:
+    inner = indent + "  "
+    return [
+        f"{indent}- fqdn: {entry['fqdn']}\n",
+        f"{inner}port: {entry['port']}\n",
+        f"{inner}protocol: {entry['protocol']}\n",
+        f"{inner}reason: {json.dumps(entry['reason'], ensure_ascii=False)}\n",
+        f"{inner}evidence: {json.dumps(entry['evidence'], ensure_ascii=False)}\n",
+    ]
+
+
+def add_egress_entries(
+    path: str, text: str | None, zone: str, contact: str, entries: list[dict[str, Any]]
+) -> tuple[str, list[str], list[str]]:
+    """The file's text with the new entries added (existing lines untouched, each new entry before the first existing
+    one whose fqdn sorts after it), the destinations added and the ones already there."""
+    if text is None or not text.strip():
+        text = f"zone: {zone}\ncontact: {contact}\negress:\n"
+    data = _load_egress_file(path, text)
+    if data.get("zone") != zone:
+        raise ToolError(f"{path} is for zone {data.get('zone')}, not {zone}")
+    lines = text.splitlines(keepends=True)
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    start = next((i for i, line in enumerate(lines) if re.match(r"^egress:\s*(\[\])?\s*$", line)), None)
+    if start is None:
+        raise ToolError(f"{path} has no top-level egress list")
+    lines[start] = "egress:\n"
+    # The list's items: from the egress line to the next top-level key.
+    top_level = [i for i in range(start + 1, len(lines)) if lines[i].strip() and lines[i][0] not in " \t-#"]
+    end = top_level[0] if top_level else len(lines)
+    blocks: list[list[str]] = []
+    indent = "  "
+    for line in lines[start + 1 : end]:
+        match = _ITEM.match(line)
+        if match and (not blocks or len(match.group(1)) == len(indent)):
+            indent = match.group(1)
+            blocks.append([line])
+        elif blocks:
+            blocks[-1].append(line)
+        elif line.strip():
+            raise ToolError(f"{path}: unexpected text before the first egress entry: {line.strip()}")
+    existing = [_entry_key(e) for e in data.get("egress") or [] if isinstance(e, dict)]
+    if len(existing) != len(blocks):
+        raise ToolError(f"{path}: could not tell its egress entries apart; a human has to add this one")
+    added, present = [], []
+    for entry in entries:
+        key = _entry_key(entry)
+        if key in existing:
+            present.append(entry["fqdn"])
+            continue
+        at = next((i for i, k in enumerate(existing) if k > key), len(existing))
+        existing.insert(at, key)
+        blocks.insert(at, _entry_block(indent, entry))
+        added.append(entry["fqdn"])
+    result = "".join(lines[: start + 1] + [line for block in blocks for line in block] + lines[end:])
+    keep_egress_entries(path, text if data.get("egress") else None, result)
+    return result, added, present
+
+
+@tool(
+    "firewall_egress_add",
+    "Add destinations to an application namespace's egress file in your firewall workspace "
+    f"({APPLICATION_FILES}/<spoke>/<namespace>.yaml), creating it if missing. Existing entries stay exactly as they "
+    "are; a destination already there is reported, not added again. Then create_pull_request.",
+    {
+        "repo": {"type": "string", "description": "Repository key of the landing zone, usually firewall"},
+        "spoke": {"type": "string", "description": "e.g. dev-int (from the flows' answer)"},
+        "namespace": {"type": "string"},
+        "zone": {"type": "string", "description": "The namespace's isolation zone, e.g. int-se"},
+        "contact": {"type": "string", "description": "The namespace's contact (used only for a new file)"},
+        "entries": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "fqdn": {"type": "string"},
+                    "port": {"type": "integer", "enum": [80, 443]},
+                    "protocol": {"type": "string", "enum": ["http", "https"]},
+                    "reason": {"type": "string", "minLength": 1},
+                    "evidence": {"type": "string", "minLength": 1},
+                },
+                "required": ["fqdn", "reason", "evidence"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    required=["repo", "spoke", "namespace", "zone", "contact", "entries"],
+)
+def firewall_egress_add(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    spoke, namespace, zone = args["spoke"], args["namespace"], args["zone"]
+    for name in (spoke, namespace, zone):
+        if not _NAME.match(name):
+            raise ToolError(f"not a valid name: {name!r}")
+    if not namespace.startswith(f"{zone}-"):
+        raise ToolError(f"namespace {namespace} is not an application namespace of zone {zone} (<zone>-<app>)")
+    entries = []
+    for e in args["entries"]:
+        fqdn = e["fqdn"].strip().lower().rstrip(".")
+        if not _FQDN.match(fqdn) or fqdn.rsplit(".", 1)[-1].isdigit():
+            raise ToolError(f"not a destination name: {e['fqdn']!r} (no IP addresses, no bare wildcards)")
+        protocol = e.get("protocol") or ("http" if e.get("port") == 80 else "https")
+        port = e.get("port") or (80 if protocol == "http" else 443)
+        entries.append({**e, "fqdn": fqdn, "protocol": protocol, "port": port})
+    path = f"{APPLICATION_FILES}/{spoke}/{namespace}.yaml"
+    _check_repo(ctx, "repo_write", args["repo"])
+    _check_write_path(ctx, args["repo"], path)
+    file = safe_join(workspace(ctx, args["repo"]), path)
+    text, added, present = add_egress_entries(
+        path, file.read_text() if file.is_file() else None, zone, args["contact"], entries
+    )
+    if added:
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(text)
+    return {"path": path, "added": added, "alreadyThere": present}
+
+
+FILE_CHECKS.append((f"{APPLICATION_FILES}/*/*.yaml", keep_egress_entries))

@@ -45,21 +45,13 @@ say so in the pull request.
    `stacks/platform-extensions/firewall-applications/<spoke>/<namespace>.yaml` (`spoke` is in the flows' answer,
    e.g. `dev-int`; a missing file is normal) - a destination already there needs nothing - and `search_issues` in the
    firewall repository with the namespace as text and state open, for pull requests already proposing it.
-6. Write the change with `repo_write` (repo `firewall`) to that one file, in the format of
-   `stacks/platform-extensions/firewall-applications/README.md`:
-
-   ```yaml
-   zone: int-se
-   contact: <the namespace's contact>
-   egress:
-     - fqdn: api.example.com
-       port: 443
-       protocol: https
-       reason: <why the application needs it, from its configuration>
-       evidence: <counts, first/last seen, pods and addresses, the manifest line>
-   ```
-
-   Keep existing entries unchanged, sorted by fqdn. One file and one pull request per application namespace.
+6. Add the destinations with `firewall_egress_add` (repo `firewall`, the spoke, namespace, zone, the namespace's
+   contact, and per destination fqdn, port, protocol, reason - why the application needs it, from its configuration -
+   and evidence - counts, first/last seen, pods and addresses, the manifest line). It adds them to
+   `stacks/platform-extensions/firewall-applications/<spoke>/<namespace>.yaml` (creating it if missing) and keeps
+   every existing entry exactly as it is: an existing rule belongs to an application that still needs it, so never
+   replace, rewrite or remove one, and do not write the file with `repo_write` - `create_pull_request` refuses a
+   change that removes or changes an existing entry. One file and one pull request per application namespace.
    Then `create_pull_request` (repo `firewall`): title `Egress: <namespace> -> <fqdn>[, ...]`; in the body the intent
    (the denied flows, which pod and workload, since when, how many), the evidence (the flows, the manifest line), the
    design (D59, section 16 egress), the risk (the rule opens the destination to the whole zone - the firewall tells

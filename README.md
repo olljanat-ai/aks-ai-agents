@@ -116,7 +116,10 @@ with [`config/onek8s-dev.yaml`](config/onek8s-dev.yaml): Claude Sonnet 5.5 on Mi
 deployment identity), `kubectl` read verbs on the firewall-egress cell through the labfw VPN, and the denied flows
 from Log Analytics with Reader: labfw's `LabfwFirewallLog_CL`, which the Azure Monitor Agent on its VM fills
 (`firewall.table`; with Azure Firewall the tool reads `AZFWApplicationRule` / `AZFWNetworkRule`). Its only write is
-one pull request per application namespace to `onek8s/azure-landing-zone`.
+one pull request per application namespace to `onek8s/azure-landing-zone`. It adds destinations with
+`firewall_egress_add`, which keeps the file's existing entries line for line, and `create_pull_request` refuses any
+change of an application's egress file that removes or rewrites an existing entry (azure-landing-zone#72 replaced
+api.open-meteo.com with the new destination).
 
 The model is the expensive part, so [`egress.py`](src/aks_agents/egress.py) does everything else in code and keeps a
 state file between runs (`aks-agent egress new`, then `aks-agent egress propose`): only what Log Analytics ingested
