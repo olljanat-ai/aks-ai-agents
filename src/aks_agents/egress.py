@@ -123,6 +123,12 @@ class EgressState:
             ):
                 del self.proposals[k]
 
+    def forget_declined(self) -> int:
+        declined = [k for k, e in self.proposals.items() if e["status"] == "declined"]
+        for k in declined:
+            del self.proposals[k]
+        return len(declined)
+
     def refresh(self, pr_state, at: dt.datetime) -> None:
         """pr_state(repo, number) -> 'open' | 'merged' | 'closed' (GitHub, no model)."""
         for entry in self.proposals.values():
@@ -218,7 +224,16 @@ def attribute(
             }
             for ns in namespaces:
                 pod = next(c for c in candidates if c["namespace"] == ns)
-                flow = {**r, "pod": {**pod, "zone": m["zone"], "node": m.get("node"), "via_node": True}}
+                flow = {
+                    **r,
+                    "pod": {
+                        **pod,
+                        "zone": m["zone"],
+                        "node": m.get("node"),
+                        "cluster": m.get("cluster"),
+                        "via_node": True,
+                    },
+                }
                 if len(namespaces) > 1:
                     flow["ambiguous"] = namespaces
                 out.append(flow)
@@ -310,7 +325,11 @@ def to_propose(
 
 
 def record(
-    state: EgressState, proposed: dict[str, list[dict[str, Any]]], outputs: list[dict[str, Any]], at: dt.datetime
+    state: EgressState,
+    proposed: dict[str, list[dict[str, Any]]],
+    outputs: list[dict[str, Any]],
+    at: dt.datetime,
+    decline: bool = True,
 ) -> None:
     """Marks every proposed (namespace, destination) pending with the pull request that carries it, and the ones
     the model proposed nothing for as declined for a day - so the same flows do not start the model again on every
@@ -335,7 +354,7 @@ def record(
                     "created": _iso(at),
                     "updated": _iso(at),
                 }
-    for ns, flows in proposed.items():
+    for ns, flows in proposed.items() if decline else ():
         for f in flows:
             k = flow_key(ns, f)
             if k not in covered and not state.suppressed(k):
@@ -352,7 +371,8 @@ def task_text(proposed: dict[str, list[dict[str, Any]]], spoke: str) -> str:
         "with `ambiguousBetween`, open the pull request only for the namespace whose configuration names it.",
         "Do not call firewall_denied_flows or",
         f"pods_by_ip again. The firewall files are under stacks/platform-extensions/firewall-applications/{spoke}/.",
-        "For each namespace: check the destination in its configuration (application_source, then repo_read), write",
+        "For each namespace: check the destination in its configuration (application_source with the flow's `cluster`",
+        "and `namespace`, then repo_read), write",
         "its file and open one pull request, as your instructions say. Then finish.",
         "",
         "```json",
@@ -372,7 +392,17 @@ def task_text(proposed: dict[str, list[dict[str, Any]]], spoke: str) -> str:
                         "lastSeen": f.get("LastSeen"),
                         "pod": {
                             k: f["pod"].get(k)
-                            for k in ("namespace", "pod", "workload", "app", "zone", "team", "contact", "node")
+                            for k in (
+                                "cluster",
+                                "namespace",
+                                "pod",
+                                "workload",
+                                "app",
+                                "zone",
+                                "team",
+                                "contact",
+                                "node",
+                            )
                         },
                     }
                     for f in flows

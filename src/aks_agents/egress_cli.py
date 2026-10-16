@@ -90,6 +90,9 @@ def cmd_new(args: argparse.Namespace, settings: Settings) -> int:
     env, at = _env(platform, settings), egress.now()
     fw = env.get("firewall") or {}
     state = egress.EgressState.load(args.state)
+    if args.forget_declined:
+        dropped = state.forget_declined()
+        print(f"forgot {dropped} declined proposals: their flows are looked at again")
     gh = GitHub(platform, fw.get("spoke", ""))
     state.refresh(gh.pr_state, at)
     workspace = os.environ.get("AKS_AGENT_FIREWALL_WORKSPACE") or fw.get("workspaceId")
@@ -141,6 +144,7 @@ def cmd_propose(args: argparse.Namespace, settings: Settings) -> int:
             if m.get("kind") == "node" and m.get("zone"):
                 # Overlay: the zone node's address stands for its application pods (design D61)
                 m["candidates"] = egress.node_candidates(m["node"], m["zone"], items["pods"], items["namespaces"])
+            m["cluster"] = cluster
             mapping[m["ip"]] = m
     flows = egress.attribute(rows, mapping, state, at)
     gh = GitHub(platform, fw.get("spoke", ""))
@@ -154,7 +158,8 @@ def cmd_propose(args: argparse.Namespace, settings: Settings) -> int:
     definition = load_all(settings.definitions_dir)["egress-agent"]
     result = AgentRunner(definition, settings, platform).run(egress.task_text(proposed, fw.get("spoke", "")))
     if not settings.dry_run:
-        egress.record(state, proposed, result.outputs, at)
+        # Declined (proposed nothing) only when the model finished; a blocked or failed run is tried again
+        egress.record(state, proposed, result.outputs, at, decline=result.status in ("completed", "no_action_needed"))
     state.save(args.state)
     print(json.dumps(result.to_dict(), indent=2, default=str))
     _output("proposed", len(result.outputs))
@@ -179,6 +184,11 @@ def add_parser(sub) -> None:
         type=int,
         default=int(egress.MAX_LOOKBACK.total_seconds() // 60),
         help="never read further back than this, whatever the checkpoint (default 180)",
+    )
+    new.add_argument(
+        "--forget-declined",
+        action="store_true",
+        help="look again at flows the model proposed nothing for (they are otherwise skipped for a day)",
     )
     new.add_argument(
         "--include-allowed",
