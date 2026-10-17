@@ -14,5 +14,7 @@ spec:
               value: "${cluster_name}"
             - name: LICENSE_URL
               value: https://license.example.org/v1/check
+            - name: TOKEN_URL
+              value: https://login.microsoftonline.com/tenant/oauth2/v2.0/token
             - name: INTERNAL
               value: http://search.int-se-search.svc.cluster.local/q

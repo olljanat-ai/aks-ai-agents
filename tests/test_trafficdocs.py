@@ -63,7 +63,13 @@ def test_the_small_build_follows_resources_components_images_and_patches():
     assert dep["spec"]["replicas"] == 3  # the component's replicas
     container = dep["spec"]["template"]["spec"]["containers"][0]
     assert container["image"] == "acronek8sdev.azurecr.io/aks-hello:0.5.0"
-    assert [e["name"] for e in container["env"]] == ["CLUSTER_NAME", "LICENSE_URL", "INTERNAL", "WEATHER_URL"]
+    assert [e["name"] for e in container["env"]] == [
+        "CLUSTER_NAME",
+        "LICENSE_URL",
+        "TOKEN_URL",
+        "INTERNAL",
+        "WEATHER_URL",
+    ]
 
 
 def test_describe_finds_workloads_routes_services_and_urls():
@@ -88,9 +94,12 @@ def test_statuses_of_the_destinations():
     assert d["stats.grafana.org"].status == t.UNEXPLAINED
     assert d["license.example.org"].status == t.MISSING  # named by LICENSE_URL, no rule
     assert d["license.example.org"].declared_in == ["Deployment aks-hello, LICENSE_URL"]
-    assert d["login.microsoftonline.com"].status == t.ZONE and d["*.blob.example.net"].status == t.ZONE
+    # The zone's allow-list: on the application's page only when its configuration names it (TOKEN_URL does)
+    assert d["login.microsoftonline.com"].status == t.ZONE
+    assert d["login.microsoftonline.com"].declared_in == ["Deployment aks-hello, TOKEN_URL"]
+    assert "*.blob.example.net" not in d and "stats.grafana.org" in d  # the latter is the application's own rule
     assert "search.int-se-search.svc.cluster.local" not in d  # in-cluster names are not egress
-    assert app.destinations[0].status == t.ZONE  # the zone's names first, then by name
+    assert app.destinations[-1].status == t.ZONE  # the application's own destinations first
     # The home cell's configuration is documented, the stateful overlay noted
     assert app.source_path == "firewall-egress" and app.home_cell == "aks-dev-int-stateless-az3"
     assert [c.name for c in app.cells] == ["aks-dev-int-stateful", "aks-dev-int-stateless-az3"]
@@ -100,13 +109,29 @@ def test_statuses_of_the_destinations():
 
 def test_a_namespace_without_rules_and_a_rule_file_without_a_namespace():
     apps = {a.namespace: a for a in t.collect(sources())}
-    quiet = apps["int-fi-quiet"]  # no rule file, no manifests at its path
-    assert [d.status for d in quiet.destinations] == [t.ZONE]
+    quiet = apps["int-fi-quiet"]  # no rule file, no manifests at its path: nothing of its own, nothing named
+    assert quiet.destinations == []
     assert any("No manifests found" in n for n in quiet.notes)
     gone = apps["int-se-gone"]  # a rule file whose namespace no cell manages any more
     assert by_name(gone)["old.example.org"].status == t.UNEXPLAINED
     assert any("may be gone" in n for n in gone.notes)
     assert "ext-fi-example" not in apps  # another exposure
+
+
+def test_platform_rules_from_the_landing_zone_tfvars():
+    rules = t.read_platform_rules(FIXTURES / "landing-zone", "int", "dev")
+    assert rules == {
+        "observability": ["*.grafana.net", "stats.grafana.org"],
+        "zones": {"int-fi": ["login.microsoftonline.com"], "int-se": ["login.microsoftonline.com"]},
+    }
+    assert t.read_platform_rules(FIXTURES / "landing-zone", "ext", "dev") == {"observability": [], "zones": {}}
+
+
+def test_a_platform_rule_named_by_the_configuration_shows_as_platform():
+    app = t.Application(namespace="int-se-x", zone="int-se")
+    app.workloads = [t.Workload("Deployment", "x", 1, [], [("STATS", "https://stats.grafana.org/report")])]
+    t.classify(app, [], {}, {}, "dev-int-applications", platform_rules=["stats.grafana.org"])
+    assert [(d.fqdn, d.status) for d in app.destinations] == [("stats.grafana.org", t.PLATFORM)]
 
 
 def test_a_proposed_destination_points_at_its_pull_request():
@@ -148,8 +173,13 @@ def test_pages_and_pictures():
     assert "hello-aks-dev-int-stateless-az3.int-se.dev.onek8s.lol" in page
     assert "acronek8sdev.azurecr.io/aks-hello:0.5.0" in page and "Deployment aks-hello x3" in page
     assert "| `license.example.org` | 443/https | no rule" in page
+    assert "zone's page](zone-int-se.md)" in page
     zone = result.files["dev-int/zone-int-se.md"]
     assert "asked by int-se-example" in zone and "license.example.org" in zone  # named, no rule yet
+    assert "stats.grafana.org:443<br/>platform rule, every cell" in zone  # the exposure's observability rule
+    assert "*.blob.example.net:443<br/>zone allow-list" in zone
+    assert "differ: the firewall enforces the latter" in zone  # fleet list has *.blob.example.net, tfvars not
+    assert "differ" not in result.files["dev-int/zone-int-fi.md"]
     assert "[`int-se-example`](int-se-example.md)" in zone and "| **no** |" in zone
     index = result.files["README.md"]
     assert "[`int-se`](dev-int/zone-int-se.md)" in index and "(dev-int/int-se-example.md)" in index

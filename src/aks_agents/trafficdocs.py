@@ -40,7 +40,8 @@ ALLOWED = "allowed"  # a rule in the application's file, and its configuration n
 UNEXPLAINED = "unexplained"  # a rule in the application's file that its configuration does not name
 MISSING = "missing"  # the configuration names it and no rule allows it: the firewall denies it
 PROPOSED = "proposed"  # in an open pull request of the egress agent
-ZONE = "zone"  # the zone's allow-list: open to every application of the zone
+ZONE = "zone"  # the zone's allow-list, open to every application of the zone (on an application page only when named)
+PLATFORM = "platform"  # a platform rule of the exposure, open from every cell (likewise)
 
 STATUS_TEXT = {
     ALLOWED: "allowed - the application's rule, named in its configuration",
@@ -48,7 +49,9 @@ STATUS_TEXT = {
     MISSING: "no rule - the configuration names it, the firewall denies it",
     PROPOSED: "proposed - in an open pull request, not allowed yet",
     ZONE: "zone allow-list - open to every application of the zone",
+    PLATFORM: "platform rule - open from every cell of the exposure",
 }
+PLATFORM_RULES_FILE = "stacks/platform-extensions/terraform.tfvars"
 
 _URL = re.compile(r"https?://([a-z0-9][a-z0-9.-]*\.[a-z][a-z0-9-]*)(?::\d+)?(?=[/?#\s\"']|$)", re.I)
 _FLUX_VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::=([^}]*))?\}")
@@ -208,6 +211,35 @@ def read_allow_lists(fleet: Path) -> dict[str, dict[str, list[str]]]:
     return {
         zone: {"names": list(z.get("names") or []), "patterns": list(z.get("patterns") or [])}
         for zone, z in (data.get("zones") or {}).items()
+    }
+
+
+def _strings(block: str, key: str) -> list[str]:
+    m = re.search(r'(?<![\w/])"?' + re.escape(key) + r'"?\s*=\s*\[([^\]]*)\]', block)
+    return re.findall(r'"([^"]*)"', m.group(1)) if m else []
+
+
+def read_platform_rules(landing_zone: Path, exposure: str, env: str) -> dict[str, Any]:
+    """The landing zone's ``firewall_exposures.<exposure>.environments.<env>``: the names its platform rules open from
+    every cell (``observability_fqdns``) and the zones' ``fqdn_allow_list`` (to compare with the fleet's lists)."""
+    path = landing_zone / PLATFORM_RULES_FILE
+    empty: dict[str, Any] = {"observability": [], "zones": {}}
+    if not path.is_file():
+        return empty
+    text = _strip_hcl_comments(path.read_text())
+    m = re.search(r"(?m)^firewall_exposures\s*=\s*\{", text)
+    if not m:
+        return empty
+    exposures = _entries(_block(text, m.end() - 1))
+    environments = _entries(exposures.get(exposure, ""))
+    envs = _entries(environments.get("environments", ""))
+    block = envs.get(env, "")
+    if not block:
+        return empty
+    zones = _entries(_entries(block).get("zones", ""))
+    return {
+        "observability": _strings(block, "observability_fqdns"),
+        "zones": {zone: _strings(z, "fqdn_allow_list") for zone, z in zones.items()},
     }
 
 
@@ -610,9 +642,12 @@ def classify(
     proposed: dict[tuple[str, str, str], str],
     rule_group: str,
     mentions: dict[str, list[str]] | None = None,
+    platform_rules: list[str] | None = None,
 ) -> None:
-    """Fills ``app.destinations`` from the application's rule file, its configuration, the zone's allow-list and the
-    open pull requests, each destination with its status."""
+    """Fills ``app.destinations`` from the application's rule file, its configuration, the zone's allow-list, the
+    platform's rules and the open pull requests, each destination with its status. The zone's allow-list and the
+    platform's rules belong to the zone's page: an application's page shows one of their names only when the
+    application's own configuration names it (else it would just be noise on every page)."""
     declared = _declared(app)
     destinations: list[Destination] = []
     covered: set[str] = set()
@@ -640,8 +675,14 @@ def classify(
                 rule=f"{rule_group}/{app.namespace}-{protocol}-{port}",
             )
         )
-    for name in list(allow_list.get("names", [])) + list(allow_list.get("patterns", [])):
-        destinations.append(Destination(name.lower(), 443, "https", ZONE, declared_in=named_by(name)))
+    for status, names in (
+        (ZONE, list(allow_list.get("names", [])) + list(allow_list.get("patterns", []))),
+        (PLATFORM, platform_rules or []),
+    ):
+        for name in names:
+            named = named_by(name)
+            if named:
+                destinations.append(Destination(name.lower(), 443, "https", status, declared_in=named))
     for host, wheres in sorted(declared.items()):
         if host in covered:
             continue
@@ -651,7 +692,7 @@ def classify(
         pr = proposed.get((host, protocol, str(port)))
         status = PROPOSED if pr else MISSING
         destinations.append(Destination(host, port, protocol, status, declared_in=wheres, pull_request=pr))
-    app.destinations = sorted(destinations, key=lambda d: (d.status != ZONE, d.fqdn))
+    app.destinations = sorted(destinations, key=lambda d: (d.status in (ZONE, PLATFORM), d.fqdn))
 
 
 def findings_of(app: Application) -> list[Finding]:
@@ -710,6 +751,7 @@ _EDGE_TEXT = {
     MISSING: "denied: no rule",
     PROPOSED: "proposed",
     ZONE: "zone allow-list",
+    PLATFORM: "platform rule",
 }
 
 
@@ -777,7 +819,7 @@ def application_picture(app: Application) -> str:
     ns_ids = [_id("svc_", s) for s in app.services] + [_id("wl_", w.name) for w in pods]
     if ns_ids:
         lines.append(f"    class {','.join(ns_ids)} ns")
-    for status in (ALLOWED, UNEXPLAINED, MISSING, PROPOSED, ZONE):
+    for status in (ALLOWED, UNEXPLAINED, MISSING, PROPOSED, ZONE, PLATFORM):
         ids = [_id("d_", d.fqdn) for d in app.destinations if d.status == status]
         if ids:
             lines.append(f"    class {','.join(ids)} {status}")
@@ -831,6 +873,12 @@ def application_page(app: Application, spoke: str) -> str:
         )
     if not app.destinations:
         out.append("| - | | nothing leaves the cluster: no rule, and the configuration names no destination | | | | |")
+    out += [
+        "",
+        "The zone's allow-list and the platform's rules (open to every application of the zone, resp. from every cell)",
+        f"are on the [zone's page](zone-{app.zone}.md); a name of theirs appears above only when this application's",
+        "configuration names it.",
+    ]
     out += ["", "## Ingress: how it is reached", ""]
     if app.routes:
         out += ["| Route | Hostnames | Gateway | Backends |", "|---|---|---|---|"]
@@ -873,7 +921,10 @@ def _legend() -> str:
             "- **denied: no rule** (red, dashed): the configuration names it and no rule allows it - the firewall",
             "  denies it until the egress agent's pull request is merged.",
             "- **proposed** (purple, dashed): in an open pull request of the egress agent.",
-            "- **zone allow-list** (teal): open to every application of the zone, not asked for by this one.",
+            "- **zone allow-list** (teal): on the zone's allow-list, open to every application of the zone; on an",
+            "  application's page only when its configuration names it.",
+            "- **platform rule** (grey): a rule of the platform for every cell of the exposure (the registry, Grafana",
+            "  Cloud, ...); on an application's page only when its configuration names it.",
             "",
             "A rule opens its destination to the whole zone (the firewall tells zones apart, not applications within",
             "one - design section 22): the zone's page shows the union.",
@@ -892,7 +943,9 @@ def _zone_destinations(apps: list[Application]) -> dict[tuple[str, int], dict[st
     return by_dest
 
 
-def zone_picture(zone: str, apps: list[Application], allow_list: dict[str, list[str]]) -> str:
+def zone_picture(
+    zone: str, apps: list[Application], allow_list: dict[str, list[str]], platform_rules: list[str] | None = None
+) -> str:
     lines = ["flowchart LR", f'    subgraph Z["Isolation zone {_label(zone)}"]', "        direction TB"]
     for a in apps:
         lines.append(f'        {_id("a_", a.namespace)}["{_label(a.namespace)}<br/>team {_label(a.team or "?")}"]')
@@ -907,6 +960,8 @@ def zone_picture(zone: str, apps: list[Application], allow_list: dict[str, list[
     zone_names = list(allow_list.get("names", [])) + list(allow_list.get("patterns", []))
     for name in zone_names:
         lines.append(f'        {_id("z_", name)}["{_label(name)}:443<br/>zone allow-list"]')
+    for name in platform_rules or []:
+        lines.append(f'        {_id("p_", name)}["{_label(name)}:443<br/>platform rule, every cell"]')
     lines.append("    end")
     for a in apps:
         lines.append(f"    {_id('a_', a.namespace)} --> fw")
@@ -915,6 +970,8 @@ def zone_picture(zone: str, apps: list[Application], allow_list: dict[str, list[
         lines.append(f"    fw {_edge(status, _EDGE_TEXT[status])} {_id('d_', fqdn)}")
     for name in zone_names:
         lines.append(f"    fw {_edge(ZONE, _EDGE_TEXT[ZONE])} {_id('z_', name)}")
+    for name in platform_rules or []:
+        lines.append(f"    fw {_edge(PLATFORM, _EDGE_TEXT[PLATFORM])} {_id('p_', name)}")
     missing = sorted({d.fqdn for a in apps for d in a.destinations if d.status in (MISSING, PROPOSED)})
     if missing:
         lines.append(f'    none["Named by applications, no rule yet:<br/>{_label("<br/>".join(missing))}"]')
@@ -929,12 +986,21 @@ def zone_picture(zone: str, apps: list[Application], allow_list: dict[str, list[
             lines.append(f"    class {','.join(ids)} {status}")
     if zone_names:
         lines.append(f"    class {','.join(_id('z_', n) for n in zone_names)} zone")
+    if platform_rules:
+        lines.append(f"    class {','.join(_id('p_', n) for n in platform_rules)} platform")
     if missing:
         lines.append("    class none missing")
     return "\n".join(lines) + "\n"
 
 
-def zone_page(zone: str, spoke: str, apps: list[Application], allow_list: dict[str, list[str]]) -> str:
+def zone_page(
+    zone: str,
+    spoke: str,
+    apps: list[Application],
+    allow_list: dict[str, list[str]],
+    platform_rules: list[str] | None = None,
+    notes: list[str] | None = None,
+) -> str:
     cells = sorted({c.name for a in apps for c in a.cells if c.enabled})
     out = [
         f"# Traffic flows of isolation zone `{zone}`",
@@ -946,7 +1012,7 @@ def zone_page(zone: str, spoke: str, apps: list[Application], allow_list: dict[s
         f"Cells: {', '.join(f'`{c}`' for c in cells) or '-'}.",
         "",
         "```mermaid",
-        zone_picture(zone, apps, allow_list).rstrip("\n"),
+        zone_picture(zone, apps, allow_list, platform_rules).rstrip("\n"),
         "```",
         "",
         "## Applications",
@@ -980,8 +1046,14 @@ def zone_page(zone: str, spoke: str, apps: list[Application], allow_list: dict[s
         out.append(f"| `{fqdn}` | {port} | {asked} | {named} | {why} |")
     for name in list(allow_list.get("names", [])) + list(allow_list.get("patterns", [])):
         out.append(f"| `{name}` | 443 | the zone's allow-list (platform) | - | open to every application of the zone |")
-    if not rows and not allow_list:
+    for name in platform_rules or []:
+        out.append(
+            f"| `{name}` | 443 | a platform rule of the exposure | - | open from every cell: the platform's own flows |"
+        )
+    if not rows and not allow_list and not platform_rules:
         out.append("| - | | nothing: the zone's applications reach nothing outside the cluster | | |")
+    if notes:
+        out += ["", "## Notes", ""] + [f"- {n}" for n in notes]
     out += ["", _legend(), ""]
     return "\n".join(out)
 
@@ -1039,6 +1111,7 @@ def collect(sources: Sources) -> list[Application]:
     cells = read_cells(sources.iac, sources.env)
     managed = read_managed_namespaces(sources.iac, sources.env)
     allow_lists = read_allow_lists(sources.fleet)
+    platform_rules = read_platform_rules(sources.landing_zone, sources.exposure, sources.env)["observability"]
     rule_group = f"{sources.spoke}-applications"
     apps: list[Application] = []
     for namespace in sorted(set(files) | set(managed)):
@@ -1082,7 +1155,8 @@ def collect(sources: Sources) -> list[Application]:
             app.notes.append(
                 "No cell's managed_namespaces names this namespace: the rule file exists, the application may be gone."
             )
-        classify(app, entries, allow_lists.get(zone, {}), sources.proposed.get(namespace, {}), rule_group, mentions)
+        proposed = sources.proposed.get(namespace, {})
+        classify(app, entries, allow_lists.get(zone, {}), proposed, rule_group, mentions, platform_rules)
         apps.append(app)
     return apps
 
@@ -1090,6 +1164,7 @@ def collect(sources: Sources) -> list[Application]:
 def generate(sources: Sources) -> Result:
     apps = collect(sources)
     allow_lists = read_allow_lists(sources.fleet)
+    platform = read_platform_rules(sources.landing_zone, sources.exposure, sources.env)
     zones: dict[str, list[Application]] = {}
     for a in apps:
         zones.setdefault(a.zone or "unknown", []).append(a)
@@ -1099,7 +1174,19 @@ def generate(sources: Sources) -> Result:
         files[f"{sources.spoke}/{a.namespace}.md"] = application_page(a, sources.spoke)
         findings += findings_of(a)
     for zone, zapps in zones.items():
-        files[f"{sources.spoke}/zone-{zone}.md"] = zone_page(zone, sources.spoke, zapps, allow_lists.get(zone, {}))
+        allow_list = allow_lists.get(zone, {})
+        notes = []
+        in_fleet = sorted(set(allow_list.get("names", [])) | set(allow_list.get("patterns", [])))
+        in_tfvars = sorted(set(platform["zones"].get(zone, [])))
+        if zone in platform["zones"] and in_fleet != in_tfvars:
+            notes.append(
+                f"The fleet's allow-list ({', '.join(in_fleet) or 'empty'}) and the landing zone's `fqdn_allow_list` "
+                f"of the zone ({', '.join(in_tfvars) or 'empty'}) differ: the firewall enforces the latter, the pull "
+                "request check reads the former - bring them in step."
+            )
+        files[f"{sources.spoke}/zone-{zone}.md"] = zone_page(
+            zone, sources.spoke, zapps, allow_list, platform["observability"], notes
+        )
     return Result(files, findings, apps)
 
 
