@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aks-hello
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+        - name: aks-hello
+          image: acronek8sdev.azurecr.io/aks-hello:0.3.0
+          env:
+            - name: CLUSTER_NAME
+              value: "${cluster_name}"
+            - name: LICENSE_URL
+              value: https://license.example.org/v1/check
+            - name: INTERNAL
+              value: http://search.int-se-search.svc.cluster.local/q

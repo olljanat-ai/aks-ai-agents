@@ -65,6 +65,7 @@ merged and by whom.
 | Security and compliance | daily schedule, Defender and Key Vault events | pull requests for platform findings, issues for application teams |
 | Onboarding | onboarding request issue | pull requests creating namespace (tier low), identity (tier high), overlays |
 | Reviewer | every pull request | review and the required `reviewer-agent` check – never an approval |
+| Documentation (section 23) | merged firewall rules and application changes, weekly schedule | pull requests with the traffic flow documentation: a Mermaid picture and a page per application (who reaches it, what it reaches through the hub firewall, who asked for each rule) and per isolation zone (the union the firewall opens), generated from Git by `aks-agent docs traffic` – the model only explains the findings |
 | Egress (D59) | hourly schedule, firewall deny alerts | pull requests to the landing zone's per-application firewall rules (`firewall-applications/<env>-<exposure>/<namespace>.yaml`), from the flows the hub firewall denied and the pods behind their addresses |
 
 What keeps them inside their role, independently of the model:
@@ -132,6 +133,29 @@ before any cluster access; in an overlay cell (design D61) a zone node's address
 (namespace, destination) already in the firewall file, in an open agent pull request, pending, merged in the last
 hour or rejected in the last week is dropped. Nothing left: no VPN, no cluster access, no model call. What is left
 goes into the model's task, so it neither re-queries the log nor re-maps the pods.
+
+## The documentation agent (design section 23)
+
+The hub firewall's rules name zones, not applications, so Azure cannot say which application uses a rule. The
+egress agent's rule files can: each entry names the namespace, the reason and the evidence. [`trafficdocs.py`](src/aks_agents/trafficdocs.py)
+joins those files with the application's own Flux configuration (its Kustomization in the team's repository, built
+with `kustomize` when installed), the zone's allow-list (the fleet's `policy/egress-allow-lists.yaml`) and the cells
+(`envs/*.tfvars` of aks-terraform) and writes Markdown pages with Mermaid pictures - GitHub renders them - one per
+application namespace and one per isolation zone, into the landing zone's `docs/traffic-flows/<spoke>/`. Every
+destination has a status: **allowed** and named in the configuration, **allowed but not named** by it (a hidden
+dependency or a stale rule), **named but without a rule** (denied), **proposed** in an open pull request, or on the
+**zone allow-list**. All of it is deterministic and reads Git only:
+
+```bash
+aks-agent docs traffic --spoke dev-int --landing-zone ../azure-landing-zone --fleet ../aks-fluxcd-platform \
+    --iac ../aks-terraform --app-repo onek8s/aks-fluxcd-example=../aks-fluxcd-example        # writes the pages
+aks-agent docs traffic ... --check                                                          # CI: fails when stale
+```
+
+`aks-terraform`'s **Traffic flow docs** workflow runs it after a firewall rule or an application change and, when a
+page changed, starts [`documentation-agent`](agents/documentation-agent.yaml), whose tool `traffic_flow_docs` writes
+the same pages into its workspace; the model only explains the findings and opens the pull request. The pages carry no
+timestamp, so a run that changes nothing opens nothing.
 
 ## Assumptions and open points for the design
 
