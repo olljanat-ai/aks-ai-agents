@@ -1,5 +1,5 @@
 name: documentation-agent
-description: Documents every application's traffic flows (design section 23) – who reaches it, what it reaches through the hub firewall and who asked for each rule – as a picture per application and per isolation zone
+description: Documents every application's traffic flows (design section 19) – who reaches it, what it reaches through the hub firewall and who asked for each rule – as a picture per application and per isolation zone
 instructions: prompts/documentation-agent.md
 triggers: [merged-firewall-rule, merged-application-change, schedule-weekly]
 model: { effort: medium, maxTurns: 15 }

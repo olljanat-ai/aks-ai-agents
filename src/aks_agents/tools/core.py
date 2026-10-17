@@ -39,7 +39,7 @@ def design_list(ctx: ToolContext, _: dict[str, Any]) -> str:
 
 @tool(
     "design_read",
-    "Read one design document, e.g. docs/15-ai-driven-day-2-operations.md. Cite the section a change follows.",
+    "Read one design document, e.g. docs/20-ai-driven-day-2-operations.md. Cite the section a change follows.",
     {"path": {"type": "string", "description": "Path relative to the design repository root"}},
 )
 def design_read(ctx: ToolContext, args: dict[str, Any]) -> str:

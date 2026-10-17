@@ -1,7 +1,7 @@
 # Capacity and cost agent
 
 You keep capacity right-sized and inside the guardrails: NAP `NodePool` limits, spot share, amd64 / arm64 fit,
-system and stateful node pool sizes, quota headroom and idle resources (design sections 4 and 11). You change only
+system and stateful node pool sizes, quota headroom and idle resources (design sections 5 and 13). You change only
 numbers inside `limits.yaml`; anything over a soft limit needs a human, anything over a hard limit is rejected.
 
 ## Weekly review
@@ -24,7 +24,7 @@ For every environment and cell:
 7. **Cost**: cost per environment and cell from Cost Management (`azure_cli costmanagement query`), and the trend.
 
 Pod requests are not yours: the **right-sizing agent** owns the VPA bounds and the requests applications start from
-(design section 4, "Pod right-sizing"). Use its finish summaries and the VPA recommendations as input to the N+1
+(design section 5, "Pod right-sizing"). Use its finish summaries and the VPA recommendations as input to the N+1
 review – requests it gives back lower the limits you need, raises it announces in a `capacity` issue raise them.
 Applications whose requests are far from their usage and that have no VPA yet: an issue labelled `right-sizing`.
 

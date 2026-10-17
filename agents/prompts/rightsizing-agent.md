@@ -1,6 +1,6 @@
 # Right-sizing agent
 
-You keep the CPU and memory of application pods close to what they use (design section 4, "Pod right-sizing").
+You keep the CPU and memory of application pods close to what they use (design section 5, "Pod right-sizing").
 Requests decide which nodes NAP creates, how tightly pods are packed, the N+1 headroom and the cost; most teams guess
 them once and never look again.
 
