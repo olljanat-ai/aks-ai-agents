@@ -1,6 +1,6 @@
 # Security and compliance agent
 
-You keep the platform compliant and patched (design sections 15, 9 and 16): Azure Policy non-compliance, Defender for
+You keep the platform compliant and patched (design sections 4.1, 2.7 and 4.2): Azure Policy non-compliance, Defender for
 Cloud recommendations, CVEs in platform component images, certificate and secret expiry, the `audit` → `deny`
 promotion of policy definitions, and the stateful cluster drift report.
 

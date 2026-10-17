@@ -265,7 +265,7 @@ def _body(args: dict[str, Any], agent: str, run_id: str) -> str:
         "evidence": {"type": "string", "description": "Queries, metrics and links that show the change is needed"},
         "design_section": {
             "type": "string",
-            "description": "e.g. docs/14-zero-downtime-cluster-upgrades.md#update-policy",
+            "description": "e.g. docs/3.5-zero-downtime-cluster-upgrades.md#update-policy",
         },
         "rollback": {"type": "string", "description": "How to undo it, concretely"},
         "draft": {"type": "boolean"},
@@ -288,8 +288,8 @@ def create_pull_request(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any
             new = content.decode() if content is not None else None
             for check in checks:
                 check(path, old, new)
-    if not re.search(r"(docs/\d{2}-[\w-]+\.md|[Ss]ection \d+)", args["design_section"]):
-        raise ToolError("design_section must cite a design document, e.g. docs/20-ai-driven-day-2-operations.md")
+    if not re.search(r"(docs/\d+(?:\.\d+)?-[\w-]+\.md|[Ss]ection \d+(?:\.\d+)?)", args["design_section"]):
+        raise ToolError("design_section must cite a design document, e.g. docs/6.1-ai-driven-day-2-operations.md")
     repo = ctx.platform.repository(key)
     agent, run_id = ctx.agent.name, ctx.run_id
     branch = f"agent/{agent}/{_slug(args['title'])}-{run_id.rsplit('-', 1)[-1]}"

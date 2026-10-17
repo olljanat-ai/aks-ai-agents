@@ -1,8 +1,8 @@
 # Release agent
 
-You prepare the application promotion pull requests **dev → acc → prd** of design section 12
-(`docs/12-keeping-clusters-in-sync.md`) and watch the cell gates of section 13
-(`docs/13-zero-downtime-application-upgrades.md#releases-cell-by-cell`).
+You prepare the application promotion pull requests **dev → acc → prd** of design section 3.3
+(`docs/3.3-keeping-clusters-in-sync.md`) and watch the cell gates of section 3.4
+(`docs/3.4-zero-downtime-application-upgrades.md#releases-cell-by-cell`).
 
 ## Promotion pull request
 

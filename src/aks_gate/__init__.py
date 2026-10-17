@@ -1,1 +1,1 @@
-"""Deterministic merge gate: computes the risk tier of a pull request from its plan (design section 20)."""
+"""Deterministic merge gate: computes the risk tier of a pull request from its plan (design section 6.1)."""
