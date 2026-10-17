@@ -104,7 +104,7 @@ PR_ARGS = dict(
     title="Promote shop to prd",
     intent="Release #12 passed acc.",
     evidence="acc gates green",
-    design_section="docs/12-keeping-clusters-in-sync.md",
+    design_section="docs/3.3-keeping-clusters-in-sync.md",
     rollback="Revert the digest.",
 )
 

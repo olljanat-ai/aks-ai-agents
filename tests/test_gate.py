@@ -20,7 +20,7 @@ Patch upgrade per the update timetable (#12).
 Version pipeline run 4711.
 
 ## Design section
-docs/14-zero-downtime-cluster-upgrades.md#update-policy
+docs/3.5-zero-downtime-cluster-upgrades.md#update-policy
 
 ## Rollback
 Revert this pull request.

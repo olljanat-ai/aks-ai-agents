@@ -1,4 +1,4 @@
-"""Traffic flow documentation (design section 19): pages and pictures from the rule files, the applications'
+"""Traffic flow documentation (design section 5.3): pages and pictures from the rule files, the applications'
 configuration, the zone allow-lists and the cells - deterministic, Git only."""
 
 import subprocess

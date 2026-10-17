@@ -54,7 +54,7 @@ say so in the pull request.
    change that removes or changes an existing entry. One file and one pull request per application namespace.
    Then `create_pull_request` (repo `firewall`): title `Egress: <namespace> -> <fqdn>[, ...]`; in the body the intent
    (the denied flows, which pod and workload, since when, how many), the evidence (the flows, the manifest line), the
-   design (D59, section 17 egress), the risk (the rule opens the destination to the whole zone - the firewall tells
+   design (D59, section 5.1 egress), the risk (the rule opens the destination to the whole zone - the firewall tells
    zones apart, not applications within one) and the rollback (revert the pull request: the Platform workflow removes
    the rule).
 7. Finish with a summary listing every flow you looked at and what you did with it.
