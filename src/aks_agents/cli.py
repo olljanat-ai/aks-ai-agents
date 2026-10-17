@@ -15,7 +15,7 @@ from .definition import AgentDefinition, load_all
 from .settings import GUARDED, PlatformConfig, Settings
 from .tools.base import REGISTRY, tools_for
 
-# Repositories no agent may ever write to (design section 15, tier "not allowed for agents").
+# Repositories no agent may ever write to (design section 20, tier "not allowed for agents").
 HUMANS_ONLY_REPOSITORIES = {"guardrails", "runbooks"}
 # Tools that only the named agents may hold.
 EXCLUSIVE_TOOLS = {
@@ -142,10 +142,10 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("list", help="list the agents and what they can write").set_defaults(func=cmd_list)
     sub.add_parser("validate", help="validate the agent definitions").set_defaults(func=cmd_validate)
-    perm = sub.add_parser("permissions", help="derive least-privilege permissions from logged runs (section 17)")
+    perm = sub.add_parser("permissions", help="derive least-privilege permissions from logged runs (section 23)")
     perm.add_argument("--runs", help="directory with the runs (default AKS_AGENT_RUNS)")
     perm.set_defaults(func=cmd_permissions)
-    ver = sub.add_parser("versions", help="version pipeline: due upgrade steps per the update policy (section 12)")
+    ver = sub.add_parser("versions", help="version pipeline: due upgrade steps per the update policy (section 14)")
     ver.add_argument(
         "--catalog", required=True, help="AKS releases in the region (YAML/JSON: minors, patches, node_images)"
     )

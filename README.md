@@ -3,13 +3,13 @@
 Implementation of the AI agents that run day 2 operations of [OneK8s](https://onek8s.github.io/) – one
 Kubernetes platform for every cloud, implemented first on AKS – described in
 [onek8s.github.io](https://github.com/onek8s/onek8s.github.io) –
-[section 15, AI-driven day 2 operations](https://github.com/onek8s/onek8s.github.io/blob/main/docs/15-ai-driven-day-2-operations.md),
+[section 20, AI-driven day 2 operations](https://github.com/onek8s/onek8s.github.io/blob/main/docs/20-ai-driven-day-2-operations.md),
 plus the agent parts of
-[section 17, implementation project](https://github.com/onek8s/onek8s.github.io/blob/main/docs/17-implementation-project-and-acceptance-testing.md)
+[section 23, implementation project](https://github.com/onek8s/onek8s.github.io/blob/main/docs/23-implementation-project-and-acceptance-testing.md)
 and the version pipeline of
-[section 12](https://github.com/onek8s/onek8s.github.io/blob/main/docs/12-zero-downtime-cluster-upgrades.md#update-policy).
+[section 14](https://github.com/onek8s/onek8s.github.io/blob/main/docs/14-zero-downtime-cluster-upgrades.md#update-policy).
 
-> Status: **work in progress**, built for the build tenant (phase 2 of section 17). Not yet run against a real
+> Status: **work in progress**, built for the build tenant (phase 2 of section 23). Not yet run against a real
 > environment.
 
 Agents may change every environment, prd included, but only the way a human platform engineer would: **with a pull
@@ -65,7 +65,7 @@ merged and by whom.
 | Security and compliance | daily schedule, Defender and Key Vault events | pull requests for platform findings, issues for application teams |
 | Onboarding | onboarding request issue | pull requests creating namespace (tier low), identity (tier high), overlays |
 | Reviewer | every pull request | review and the required `reviewer-agent` check – never an approval |
-| Documentation (section 23) | merged firewall rules and application changes, weekly schedule | pull requests with the traffic flow documentation: a Mermaid picture and a page per application (who reaches it, what it reaches through the hub firewall, who asked for each rule) and per isolation zone (the union the firewall opens), generated from Git by `aks-agent docs traffic` – the model only explains the findings |
+| Documentation (section 19) | merged firewall rules and application changes, weekly schedule | pull requests with the traffic flow documentation: a Mermaid picture and a page per application (who reaches it, what it reaches through the hub firewall, who asked for each rule) and per isolation zone (the union the firewall opens), generated from Git by `aks-agent docs traffic` – the model only explains the findings |
 | Egress (D59) | hourly schedule, firewall deny alerts | pull requests to the landing zone's per-application firewall rules (`firewall-applications/<env>-<exposure>/<namespace>.yaml`), from the flows the hub firewall denied and the pods behind their addresses |
 
 What keeps them inside their role, independently of the model:
@@ -96,7 +96,7 @@ AKS_AGENT_ENV=dev aks-agent run operations-agent --dry-run --task "Write the dai
 aks-agent run upgrade-agent --env dev --task "Open the due version pull requests." --trigger steps.json
 aks-agent permissions --runs runs/                   # least-privilege report from prototyping runs
 
-# Version pipeline (section 12)
+# Version pipeline (section 14)
 aks-agent versions --catalog aks-releases.yaml --clusters current-versions.yaml
 
 # Merge gate
@@ -134,7 +134,7 @@ before any cluster access; in an overlay cell (design D61) a zone node's address
 hour or rejected in the last week is dropped. Nothing left: no VPN, no cluster access, no model call. What is left
 goes into the model's task, so it neither re-queries the log nor re-maps the pods.
 
-## The documentation agent (design section 23)
+## The documentation agent (design section 19)
 
 The hub firewall's rules name zones, not applications, so Azure cannot say which application uses a rule. The
 egress agent's rule files can: each entry names the namespace, the reason and the evidence. [`trafficdocs.py`](src/aks_agents/trafficdocs.py)

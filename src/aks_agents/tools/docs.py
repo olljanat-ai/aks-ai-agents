@@ -1,4 +1,4 @@
-"""The documentation agent's tool (design section 23): the traffic flow pages, generated from Git into the run's
+"""The documentation agent's tool (design section 19): the traffic flow pages, generated from Git into the run's
 workspace of the repository that holds them (``documentation.repository`` in platform.yaml, the landing zone by
 default), one page per application and per isolation zone. Deterministic - no model, no cluster - so the model's
 only work is to explain the findings in the pull request."""
