@@ -288,7 +288,7 @@ def create_pull_request(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any
             new = content.decode() if content is not None else None
             for check in checks:
                 check(path, old, new)
-    if not re.search(r"(docs/\d{2}-[\w-]+\.md|[Ss]ection \d+)", args["design_section"]):
+    if not re.search(r"(docs/\d+(?:\.\d+)?-[\w-]+\.md|[Ss]ection \d+(?:\.\d+)?)", args["design_section"]):
         raise ToolError("design_section must cite a design document, e.g. docs/6.1-ai-driven-day-2-operations.md")
     repo = ctx.platform.repository(key)
     agent, run_id = ctx.agent.name, ctx.run_id

@@ -107,7 +107,7 @@ def check_structure(
         if not content:
             problems.append(f"pull request body has no '{name}' section")
     design = sections.get("design section", "")
-    if design.strip() and not re.search(r"(docs/\d{2}-[\w-]+\.md|[Ss]ection \d+)", design):
+    if design.strip() and not re.search(r"(docs/\d+(?:\.\d+)?-[\w-]+\.md|[Ss]ection \d+(?:\.\d+)?)", design):
         problems.append("'Design section' does not cite a design document section")
     if not pr.commits:
         problems.append("pull request has no commits")
