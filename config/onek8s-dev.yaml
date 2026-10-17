@@ -54,4 +54,10 @@ environments:
         aks-dev-int-stateless-az3: [100.64.0.0/16]
         aks-dev-int-stateless-az2: [172.22.16.0/20]
 
+# The documentation agent's pages (design section 23): docs/traffic-flows/<spoke>/ of the landing zone, next to the
+# rule files they document.
+documentation:
+  repository: firewall
+  path: docs/traffic-flows
+
 platformNamespaces: [kube-system, flux-system, gatekeeper-system, external-dns, external-secrets, infra-observability]

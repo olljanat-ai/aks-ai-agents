@@ -172,8 +172,10 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--dry-run", action="store_true", help="record pull requests, issues and dispatches only")
     run.set_defaults(func=cmd_run)
     from .egress_cli import add_parser as add_egress
+    from .trafficdocs_cli import add_parser as add_docs
 
     add_egress(sub)
+    add_docs(sub)
     args = parser.parse_args(argv)
     settings = Settings.from_env()
     if getattr(args, "env", None):
